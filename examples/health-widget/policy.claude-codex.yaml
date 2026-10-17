@@ -1,0 +1,21 @@
+# Intended demo: Claude Code leads and works alongside Codex CLI.
+version: 1
+mode: subscription
+orchestration:
+  lead: {adapter: claude-code, model: opus}
+  lead_substitute: null
+routing:
+  allowed_providers: [anthropic, openai]
+  allowed_models: ["anthropic/*", "openai/*"]
+  max_parallel_workers: 2
+  escalate_after_failures: 2
+  spread_across_providers: true
+billing: {api_enabled: false}
+permissions: {allow_network: false, allow_dependency_install: false}
+execution: {task_timeout_seconds: 900, max_attempts: 2}
+providers:
+  claude-code:
+    models: [{id: opus, reasoning_tier: frontier}, {id: sonnet, reasoning_tier: balanced}]
+  codex-cli:
+    options: {isolate_user_config: true}
+    models: [{id: default, reasoning_tier: unknown}]

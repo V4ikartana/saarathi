@@ -1,0 +1,213 @@
+"""Project policy: what Saarathi may use and do. Loaded from ``.saarathi/policies.yaml``."""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from fnmatch import fnmatchcase
+from pathlib import Path
+from typing import Any, Literal
+
+import yaml
+from pydantic import Field, ValidationError, model_validator
+
+from saarathi.core.contracts import ReasoningTier, Strict
+from saarathi.core.errors import ConfigError
+
+
+class Mode(StrEnum):
+    SUBSCRIPTION = "subscription"
+    API = "api"
+    HYBRID = "hybrid"
+
+
+class ModelRef(Strict):
+    adapter: str
+    model: str
+
+
+class OperationsConfig(Strict):
+    strategy: Literal["deterministic"] = "deterministic"
+
+
+class OrchestrationConfig(Strict):
+    lead: ModelRef
+    lead_substitute: ModelRef | None = None
+    operations: OperationsConfig = Field(default_factory=OperationsConfig)
+
+
+class RoutingWeights(Strict):
+    tier_fit: float = 3.0
+    cost: float = 1.0
+    history: float = 2.0
+    load: float = 1.0
+    spread: float = 1.5
+
+
+class RoutingConfig(Strict):
+    allowed_providers: list[str]
+    allowed_models: list[str]
+    denied_models: list[str] = Field(default_factory=list)
+    max_parallel_workers: int = Field(default=2, ge=1, le=16)
+    escalate_after_failures: int = Field(default=2, ge=1)
+    spread_across_providers: bool = True
+    weights: RoutingWeights = Field(default_factory=RoutingWeights)
+
+    def model_allowed(self, provider: str, model_key: str) -> tuple[bool, str | None]:
+        if provider not in self.allowed_providers:
+            return False, f"provider '{provider}' is not in routing.allowed_providers"
+        for pattern in self.denied_models:
+            if fnmatchcase(model_key, pattern):
+                return False, f"model '{model_key}' matches denied pattern '{pattern}'"
+        if not any(fnmatchcase(model_key, p) for p in self.allowed_models):
+            return False, f"model '{model_key}' matches no routing.allowed_models pattern"
+        return True, None
+
+
+class BillingConfig(Strict):
+    api_enabled: bool = False
+    allow_api_fallback: bool = False
+    max_run_usd: float = Field(default=0, ge=0)
+    max_month_usd: float = Field(default=0, ge=0)
+
+
+class PermissionsConfig(Strict):
+    allow_network: bool = False
+    allow_dependency_install: bool = False
+    allow_deployment: bool = False
+    require_approval_for_merge: bool = True
+
+
+class ExecutionConfig(Strict):
+    task_timeout_seconds: int = Field(default=1800, ge=10)
+    verification_timeout_seconds: int = Field(default=600, ge=5)
+    lead_timeout_seconds: int = Field(default=900, ge=10)
+    max_attempts: int = Field(default=2, ge=1, le=5)
+    env_passthrough: list[str] = Field(default_factory=list)
+    max_log_bytes: int = Field(default=2_000_000, ge=10_000)
+
+
+class DeclaredModel(Strict):
+    id: str
+    reasoning_tier: ReasoningTier = ReasoningTier.UNKNOWN
+    max_parallel: int = Field(default=1, ge=1)
+    source: str = "user_declared"
+
+
+class ProviderConfig(Strict):
+    enabled: bool = True
+    # Adapter implementation; defaults to the entry's key (e.g. "codex-cli"). "fake" is test-only.
+    type: str | None = None
+    # Provider identity, only settable for fake adapters; real adapters declare their own.
+    provider: str | None = None
+    binary: str | None = None
+    models: list[DeclaredModel] = Field(default_factory=list)
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class Policy(Strict):
+    version: Literal[1] = 1
+    mode: Mode = Mode.SUBSCRIPTION
+    orchestration: OrchestrationConfig
+    routing: RoutingConfig
+    billing: BillingConfig = Field(default_factory=BillingConfig)
+    permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> Policy:
+        if self.mode is Mode.SUBSCRIPTION and self.billing.api_enabled:
+            raise ValueError("mode 'subscription' cannot set billing.api_enabled: true (use 'hybrid' or 'api')")
+        if self.billing.allow_api_fallback and not self.billing.api_enabled:
+            raise ValueError("billing.allow_api_fallback requires billing.api_enabled")
+        refs = [self.orchestration.lead]
+        if self.orchestration.lead_substitute:
+            refs.append(self.orchestration.lead_substitute)
+        for ref in refs:
+            cfg = self.providers.get(ref.adapter)
+            if cfg is None:
+                raise ValueError(f"orchestration references unknown provider adapter '{ref.adapter}'")
+            if ref.model not in {m.id for m in cfg.models}:
+                raise ValueError(
+                    f"orchestration model '{ref.model}' is not declared under providers.{ref.adapter}.models"
+                )
+        return self
+
+
+def load_policy(path: Path) -> Policy:
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ConfigError(f"policy file not found: {path}", hint="run `saarathi init`") from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"policy file is not valid YAML: {exc}") from exc
+    return parse_policy(raw, source=str(path))
+
+
+def parse_policy(raw: object, *, source: str = "<policy>") -> Policy:
+    try:
+        return Policy.model_validate(raw)
+    except ValidationError as exc:
+        details = "; ".join(f"{'.'.join(str(p) for p in err['loc']) or '<root>'}: {err['msg']}" for err in exc.errors())
+        raise ConfigError(f"invalid policy in {source}: {details}") from exc
+
+
+DEFAULT_POLICY_YAML = """\
+# Saarathi policy. Every field is enforced by deterministic code, not by a model.
+version: 1
+mode: subscription            # subscription | api | hybrid
+
+orchestration:
+  # The engineering lead runs intake, planning and final review. It must be a declared model below.
+  lead:
+    adapter: claude-code
+    model: opus
+  # Used only if the lead is unavailable. Leave null to pause instead of substituting.
+  lead_substitute: null
+  operations:
+    strategy: deterministic
+
+routing:
+  allowed_providers: [anthropic, openai]
+  allowed_models: ["anthropic/*", "openai/*"]
+  denied_models: []
+  max_parallel_workers: 2
+  escalate_after_failures: 2
+  spread_across_providers: true
+
+billing:
+  api_enabled: false          # metered transports (API keys) are blocked while false
+  allow_api_fallback: false
+  max_run_usd: 0
+  max_month_usd: 0
+
+permissions:
+  allow_network: false
+  allow_dependency_install: false
+  allow_deployment: false
+  require_approval_for_merge: true
+
+execution:
+  task_timeout_seconds: 1800
+  verification_timeout_seconds: 600
+  lead_timeout_seconds: 900
+  max_attempts: 2
+  env_passthrough: []         # extra environment variable names workers may see
+
+providers:
+  claude-code:
+    enabled: true
+    binary: null              # null = look up `claude` on PATH
+    models:
+      # Documented Claude Code aliases. Tiers are your declaration, not a provider guarantee.
+      - {id: opus, reasoning_tier: frontier}
+      - {id: sonnet, reasoning_tier: balanced}
+  codex-cli:
+    enabled: true
+    binary: null              # null = look up `codex` on PATH
+    options:
+      isolate_user_config: true   # pass --ignore-user-config (auth is still read by Codex itself)
+    models:
+      # "default" means the model selected by your Codex configuration; Codex does not report which.
+      - {id: default, reasoning_tier: unknown}
+"""

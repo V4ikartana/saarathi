@@ -1,0 +1,18 @@
+# Fallback for hosts without Claude Code: Codex CLI serves as lead and worker.
+# This exercises every real code path but is NOT the two-provider demonstration.
+version: 1
+mode: subscription
+orchestration:
+  lead: {adapter: codex-cli, model: default}
+routing:
+  allowed_providers: [openai]
+  allowed_models: ["openai/*"]
+  max_parallel_workers: 2
+  escalate_after_failures: 2
+billing: {api_enabled: false}
+permissions: {allow_network: false, allow_dependency_install: false}
+execution: {task_timeout_seconds: 900, max_attempts: 2}
+providers:
+  codex-cli:
+    options: {isolate_user_config: true}
+    models: [{id: default, reasoning_tier: unknown, max_parallel: 2}]
