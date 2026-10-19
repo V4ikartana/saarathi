@@ -25,7 +25,8 @@ and one control plane:
 
 ## Compatibility and prerequisites
 
-- macOS or Linux (Windows is not supported yet), Python 3.12+, Git 2.40+.
+- macOS, Linux or Windows, Python 3.12+, Git 2.40+. The test suite runs on all three in CI; provider CLIs have been
+  run live on macOS only. On Windows, enable `git config --global core.longpaths true`.
 - At least one supported, logged-in provider CLI:
 
 | Provider CLI | Adapter status | Evidence |
@@ -125,7 +126,7 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
   [ADR-0008](docs/architecture/decisions/ADR-0008-integration-and-identity-aware-routing.md) and
   [ADR-0009](docs/architecture/decisions/ADR-0009-cross-task-handoff.md).
 - A failed task stays failed for that run. Recovery from escalations means a new run.
-- POSIX only (`fcntl` locking, process groups).
+- Windows support is verified by the offline test suite only (ADR-0012). No provider CLI has been run live on Windows.
 
 ## Architecture
 

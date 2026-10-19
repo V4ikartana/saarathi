@@ -36,4 +36,4 @@ Each item has a testable definition of done (DoD). `→` lists dependencies. Sta
 | P6 | Rate-limit backoff and provider exhaustion handling | S11 | Scenario D passes | Done (offline; live limit errors not yet observed) |
 | P7 | Memory proposals → lessons promotion with approval | S9 | Unapproved proposals never reach `lessons.md` | Done (only verified attempts propose; `saarathi lessons approve|reject`; approved lessons cited in later task context) |
 | P8 | CI (Linux/macOS), secret scanning, dependency audit, release packaging | – | Green CI on PRs | Done: CI, gitleaks, pip-audit and wheel build + smoke test on GitHub; PyPI publishing not set up |
-| P9 | Windows support (locking, process groups) | S12 | Test suite green on Windows |  |
+| P9 | Windows support (locking, process groups) | S12 | Test suite green on Windows | Done (ADR-0012): offline suite green on Windows CI; no provider CLI run live on Windows yet |

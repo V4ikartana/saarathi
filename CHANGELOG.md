@@ -54,7 +54,12 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   model recorded as the model used, and one bounded retry when a denied tool discards the result. Included in
   the default policy and a three-provider example policy.
 
+- Windows support (ADR-0012): portable process-tree termination and liveness checks, `msvcrt` engine lock,
+  Windows environment allowlist, LF memory files; a Windows CI job runs the full suite.
+
 ### Fixed
+- The command policy now recognises versioned and Windows program names (`python3.12 -c`, `Python.EXE -c`,
+  `cmd /c`, PowerShell `-Command`) and drive-letter paths.
 - Unblocking a task on resume no longer makes it READY before its dependencies have succeeded.
 - Dependent tasks now start from their dependencies' verified commits instead of the bare run base; conflicting
   dependencies block the task with a checkpoint (ADR-0009).
