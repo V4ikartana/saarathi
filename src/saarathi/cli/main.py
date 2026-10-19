@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import signal
 import subprocess
 import sys
 import tempfile
@@ -30,6 +32,7 @@ from saarathi.cli.output import (
     VerifyOut,
     emit,
 )
+from saarathi.cli.status import build_status
 from saarathi.core.contracts import RoutingDecision
 from saarathi.core.errors import ExitCode, SaarathiError
 from saarathi.core.policy import load_policy
@@ -138,37 +141,7 @@ def _exit_for(state: RunState) -> int:
 
 
 def _status(project: Project, run_id: str) -> StatusOut:
-    run = project.store.get_run(run_id)
-    tasks = []
-    for t in project.store.tasks(run_id):
-        attempts = project.store.attempts(run_id, t.id)
-        last = attempts[-1] if attempts else None
-        tasks.append(
-            TaskOut(
-                id=t.id,
-                title=t.packet.title,
-                state=t.state,
-                attempts=len(attempts),
-                failures=t.failures,
-                dependencies=t.packet.dependencies,
-                worker=f"{last.adapter}:{last.model}" if last else None,
-                provider=last.provider if last else None,
-                transport=last.transport if last else None,
-                blocked_reason=t.blocked_reason,
-                failure_reason=(t.result or {}).get("failure_reason"),
-            )
-        )
-    questions = [q for q in project.store.questions(run_id) if q["answer"] is None]
-    return StatusOut(
-        run_id=run.id,
-        state=run.state,
-        pause_reason=run.pause_reason,
-        paused_from=run.paused_from,
-        base_commit=run.base_commit,
-        integration_branch=run.integration_branch,
-        open_questions=[f"{q['id']}: {q['question']}" for q in questions],
-        tasks=tasks,
-    )
+    return build_status(project, run_id)
 
 
 def _print_status(status: StatusOut) -> None:
@@ -186,7 +159,17 @@ def _print_status(status: StatusOut) -> None:
         typer.echo(f"  integration branch: {status.integration_branch}")
 
 
+def _interrupt_on_termination() -> None:
+    """Make SIGTERM (and Windows CTRL_BREAK) stop a run the way Ctrl-C does: attempts cancelled, run paused."""
+    for name in ("SIGTERM", "SIGBREAK"):
+        sig = getattr(signal, name, None)
+        if sig is not None:
+            with contextlib.suppress(ValueError, OSError):  # only possible on the main thread
+                signal.signal(sig, signal.default_int_handler)
+
+
 def _drive(project: Project, engine: Engine, run_id: str, json_out: bool) -> None:
+    _interrupt_on_termination()
     try:
         state = asyncio.run(engine.drive(run_id))
     except KeyboardInterrupt:
@@ -1051,6 +1034,18 @@ def integrations_select(
     except SaarathiError as exc:
         _fail(exc)
     typer.echo(f"{task_id} requirement {requirement} will use {account_id}. Continue with `saarathi resume`.")
+
+
+@app.command()
+def bridge(
+    stdio: Annotated[bool, typer.Option("--stdio", help="Speak JSON-RPC 2.0 on stdin/stdout (required).")] = False,
+) -> None:
+    """Run the desktop bridge (protocol 1). Used by Saarathi Desktop; not meant for interactive use."""
+    if not stdio:
+        _fail(SaarathiError("the bridge only supports --stdio", hint="saarathi bridge --stdio"))
+    from saarathi.bridge.server import serve_stdio
+
+    raise typer.Exit(serve_stdio())
 
 
 def main() -> None:  # pragma: no cover

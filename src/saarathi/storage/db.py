@@ -240,6 +240,32 @@ MIGRATIONS: tuple[str, ...] = (
         UNIQUE (run_id, digest)
     );
     """,
+    # 5: desktop conversation sessions (ADR-0013). A session groups runs; items are what the user said and
+    # bridge-recorded notes. Orchestrator messages are rendered from runs and events, not stored twice.
+    """
+    CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        preferences_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE session_items (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id),
+        seq INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        role TEXT NOT NULL,
+        body_json TEXT NOT NULL,
+        run_id TEXT,
+        idempotency_key TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        UNIQUE (session_id, seq)
+    );
+    CREATE INDEX session_items_run ON session_items(run_id);
+    """,
 )
 
 
