@@ -12,6 +12,13 @@ uv run ruff format src tests # format
 uv run mypy                  # strict type checking
 ```
 
+Build and check the package the way CI does:
+
+```bash
+uv build
+scripts/smoke-test-wheel.sh dist/*.whl
+```
+
 Live provider tests are opt-in and use your own quota:
 
 ```bash

@@ -1,6 +1,6 @@
 [project]
 name = "saarathi"
-version = "0.1.0.dev0"
+dynamic = ["version"]
 description = "Local-first orchestrator that coordinates multiple AI coding agents to turn project briefs into verified changes."
 readme = "README.md"
 license = "Apache-2.0"
@@ -39,8 +39,27 @@ dev = [
 requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/saarathi/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/saarathi"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/saarathi",
+    "tests",
+    "docs",
+    "examples",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "pyproject.toml",
+    "uv.lock",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

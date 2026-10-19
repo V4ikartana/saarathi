@@ -17,4 +17,4 @@ Scale: likelihood/impact H/M/L. Owners default to the maintainers.
 | R10 | Cost runaway via API keys inherited by CLIs | M | H | Environment allowlist drops `*_API_KEY` unless configured. API-key-authenticated CLIs are classified as metered and blocked when the API is disabled | Mitigated |
 | R11 | Prompt injection in repository docs steering workers | H | M | Untrusted-data envelopes, deterministic routing and permissions, command policy on plans, scope enforcement | Mitigated (tests in Scenario F) |
 | R12 | `fcntl` lock and process-group handling are POSIX-only | M | L | Windows support is backlog; CI on Linux and macOS first | Open |
-| R13 | PyPI name `saarathi` and trademark availability unknown | M | L | Verify before first public release | Open |
+| R13 | PyPI name and trademark availability | M | L | 2026-10-19: `saarathi`, `saarathi-ai`, `saarathi-cli` unregistered on PyPI; `sarathi` (one "a") is taken by "A CLI coding assistant", a confusion risk in the same space. Trademark not checked | Open |
