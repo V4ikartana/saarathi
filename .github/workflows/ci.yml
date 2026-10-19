@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
       - name: Dependency audit
-        run: uvx pip-audit --strict -r <(uv export --frozen --no-dev --no-hashes)
+        run: uvx pip-audit --strict -r <(uv export --frozen --no-dev --no-hashes --no-emit-project)
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2
         env:
