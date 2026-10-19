@@ -129,3 +129,36 @@ stages paths matching `execution.ignored_artifacts` (default: `__pycache__`, `*.
 
 Opt-in live tests for Claude (`tests/live/test_claude_live.py`) passed: worktree writes stayed isolated, and read-only
 mode blocked a requested write.
+
+## 7. Live evidence: Antigravity CLI and a three-provider run (2026-10-19)
+
+`agy` 1.4.2 was already installed (`~/.local/bin/agy`) and signed in with the user's Google account. `agy models` works
+without a TTY and listed six models for this account (Gemini 3.8 Flash high/medium/low, Claude Sonnet 4.6, Claude Opus
+4.6 Thinking, GPT-OSS 120B). Saarathi treats all of them as provider `google`, because that is where the data goes.
+
+What the probes established (all through Saarathi's filtered environment):
+
+| Question | Finding |
+|---|---|
+| Prompt input | `-p` takes the prompt as its value; there is no stdin prompt mode (`-p -` is a literal prompt) |
+| Structured output | `--output-format json --json-schema` → `structured_output` in a single envelope |
+| Edits | `--mode accept-edits` wrote only in the working directory (a Git worktree) |
+| Read-only | Default headless mode denied a requested `write_file`; reads of repository files worked |
+| `--mode plan` | Only effective with slash commands enabled; it is not a read-only guarantee, so Saarathi does not use it |
+| Denied tools | A denied tool (shell command, write, sometimes a read) ends the run with `status: SUCCESS`, exit 0 and **no** `structured_output`. Saarathi treats that as a failure, retries once with a note naming the denied tool, then fails closed |
+| Shell commands | Always denied headless unless pre-approved in the user's own settings; workers are told not to run any. Saarathi runs verification itself |
+
+Opt-in live tests (`tests/live/test_antigravity_live.py`) passed: workspace write stays in the worktree, read-only
+cannot write, and the lead escalation schema (nested object, nullable integer) is accepted.
+
+**Three-provider run** on `examples/health-widget` with `policy.three-providers.yaml`:
+
+| Step | Result |
+|---|---|
+| Lead (Claude Opus) | Intake asked two material questions (accepted defaults); plan with two parallel tasks and two ADRs |
+| Routing | T-001 → `antigravity-cli:gemini-3.8-flash-medium` (balanced tier fits routine work); T-002 → `codex-cli:default` (provider spread) |
+| Workers | Both succeeded on the first attempt in separate worktrees |
+| Integration | Two checks, both exit 0; the user's `main` was unchanged |
+| Lead review | `approve`, with three accurate non-blocking concerns |
+
+Report: [`evidence/live-three-provider-report.md`](evidence/live-three-provider-report.md).

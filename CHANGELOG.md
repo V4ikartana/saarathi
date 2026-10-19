@@ -49,6 +49,11 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 - Lessons (P7): workers' memory proposals from verified attempts are recorded as proposals; `saarathi lessons
   approve|reject` decides, approved lessons go to `.saarathi/lessons.md` and into later tasks' context.
 
+- Antigravity CLI adapter (`agy` 1.4.2, provider `google`): structured output via `--json-schema`, edits with
+  `--mode accept-edits`, read-only by headless default, real model discovery through `agy models`, a pinned
+  model recorded as the model used, and one bounded retry when a denied tool discards the result. Included in
+  the default policy and a three-provider example policy.
+
 ### Fixed
 - Unblocking a task on resume no longer makes it READY before its dependencies have succeeded.
 - Dependent tasks now start from their dependencies' verified commits instead of the bare run base; conflicting

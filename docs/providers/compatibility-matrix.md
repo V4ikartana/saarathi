@@ -3,21 +3,21 @@
 Legend: **V** verified live on a host · **D** documented officially, not yet run · **–** unsupported or unknown (treated as unsupported).
 Evidence and dates are in [`docs/phase0/feasibility-report.md`](../phase0/feasibility-report.md).
 
-| Capability | Codex CLI 0.162.0-alpha.2 / alpha.17.2 | Claude Code 2.1.302 | Antigravity / Gemini CLI | Anthropic / OpenAI / Google APIs |
+| Capability | Codex CLI 0.162.0-alpha.2 / alpha.17.2 | Claude Code 2.1.302 | Antigravity CLI (`agy`) 1.4.2 | Anthropic / OpenAI / Google APIs |
 |---|---|---|---|---|
-| Adapter status in v0.1 | **Enabled, verified live** | **Enabled, verified live** (Pro subscription login) | Not implemented (Phase 2) | Not implemented (Phase 2) |
-| Non-interactive execution | V `codex exec` | V `claude -p`, prompt on stdin | D `agy -p` (secondary source) | n/a |
-| Structured final output | V `--output-schema` + `-o` | V `--json-schema` → `structured_output` | D `--output-format json` (no schema flag verified) | D |
-| Strict schema with nullable fields and nested closed objects (lead plan with `integrations`) | V (alpha.17.2, 2026-10-19) | V (2.1.302, 2026-10-19) | – | n/a |
-| Event stream | V `--json` JSONL | D `--output-format stream-json` (Saarathi uses `json`) | D | n/a |
-| Workspace write restriction | V `--sandbox workspace-write` (OS sandbox) | V writes stayed in the worktree; enforced by permission rules only, and Bash is not OS-sandboxed | – | n/a |
-| Read-only mode | V `--sandbox read-only` blocked a requested write | V `--tools Read,Glob,Grep` + `dontAsk` blocked a requested write | – | n/a |
-| Model selection | D `-m` (IDs not discoverable through a documented command) | V `--model opus` resolved to `claude-opus-5-5`; `sonnet` also used | – | D |
-| Model actually used is reported | – (not in JSONL) | V `modelUsage` keys | – | D |
-| Usage reporting | V tokens in `turn.completed.usage` | V tokens + `total_cost_usd` (client-side API-equivalent estimate; not a charge on subscription) | D `stats` | D |
-| Cancellation | V process-group kill (Saarathi runner tests) | D SIGTERM → exit 143, kills Bash tree | – | n/a |
-| Auth status check | V `codex login status` | V `claude auth status` (`authMethod: claude.ai`) | – | env var presence |
-| Ignore user/repo config | V `--ignore-user-config` | D `--setting-sources user`, `--strict-mcp-config` (user hooks still load) | – | n/a |
-| Integration inventory (connected services, accounts, scopes) | – no documented interface; `integrations scan` reports `unverified` | – no documented interface; `integrations scan` reports `unverified` | – | n/a |
+| Adapter status in v0.1 | **Enabled, verified live** | **Enabled, verified live** (Pro subscription login) | **Enabled, verified live** (Google account login) | Deferred past v0.1 (ADR-0011) |
+| Non-interactive execution | V `codex exec` | V `claude -p`, prompt on stdin | V `agy -p <prompt>` (prompt is an argument; no stdin mode) | n/a |
+| Structured final output | V `--output-schema` + `-o` | V `--json-schema` → `structured_output` | V `--output-format json --json-schema` → `structured_output`; a denied tool leaves it empty with exit 0 | D |
+| Strict schema with nullable fields and nested closed objects (lead plan with `integrations`) | V (alpha.17.2, 2026-10-19) | V (2.1.302, 2026-10-19) | V escalation schema (nested object, nullable integer), 2026-10-19; plan schema with `integrations` not yet run | n/a |
+| Event stream | V `--json` JSONL | D `--output-format stream-json` (Saarathi uses `json`) | D `--output-format stream-json` (Saarathi uses `json`) | n/a |
+| Workspace write restriction | V `--sandbox workspace-write` (OS sandbox) | V writes stayed in the worktree; enforced by permission rules only, and Bash is not OS-sandboxed | V `--mode accept-edits` wrote only in the working directory; shell commands are denied in headless mode | n/a |
+| Read-only mode | V `--sandbox read-only` blocked a requested write | V `--tools Read,Glob,Grep` + `dontAsk` blocked a requested write | V default headless mode denied a requested write; reads allowed. Any denial ends the run without output (one retry) | n/a |
+| Model selection | D `-m` (IDs not discoverable through a documented command) | V `--model opus` resolved to `claude-opus-5-5`; `sonnet` also used | V `--model <slug>`; `agy models` lists the account's models; no silent fallback | D |
+| Model actually used is reported | – (not in JSONL) | V `modelUsage` keys | D not in the envelope; a pinned model cannot silently fall back, so it is recorded | D |
+| Usage reporting | V tokens in `turn.completed.usage` | V tokens + `total_cost_usd` (client-side API-equivalent estimate; not a charge on subscription) | V tokens (input, output, thinking, cache read); no cost | D |
+| Cancellation | V process-group kill (Saarathi runner tests) | D SIGTERM → exit 143, kills Bash tree | D process-group kill; `--print-timeout` set below Saarathi's timeout | n/a |
+| Auth status check | V `codex login status` | V `claude auth status` (`authMethod: claude.ai`) | V `agy models` succeeds when signed in; works without a TTY | env var presence |
+| Ignore user/repo config | V `--ignore-user-config` | D `--setting-sources user`, `--strict-mcp-config` (user hooks still load) | – user settings in `~/.gemini/antigravity-cli/settings.json` apply | n/a |
+| Integration inventory (connected services, accounts, scopes) | – no documented interface; `integrations scan` reports `unverified` | – no documented interface; `integrations scan` reports `unverified` | – `agy mcp list` shows MCP servers, not accounts or scopes; `integrations scan` reports `unverified` | n/a |
 | Safe integration probe | – (`verify` can only record user confirmation) | – (`verify` can only record user confirmation) | – | n/a |
-| Automation policy | API key recommended; ChatGPT auth on trusted machines | Subscription for "ordinary use"; see ADR-0006 | Consumer tiers moved to Antigravity 2026-06-18 | Metered; budgets required |
+| Automation policy | API key recommended; ChatGPT auth on trusted machines | Subscription for "ordinary use"; see ADR-0006 | Docs present headless mode for scripting and CI; no usage-policy statement found | Deferred |

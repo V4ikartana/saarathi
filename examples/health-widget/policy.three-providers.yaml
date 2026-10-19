@@ -1,0 +1,24 @@
+# Claude Code leads; Antigravity (Google) and Codex CLI do the work.
+# Claude declares only the lead model, so routine tasks go to the two workers.
+version: 1
+mode: subscription
+orchestration:
+  lead: {adapter: claude-code, model: opus}
+routing:
+  allowed_providers: [anthropic, openai, google]
+  allowed_models: ["anthropic/*", "openai/*", "google/*"]
+  max_parallel_workers: 2
+  escalate_after_failures: 2
+  spread_across_providers: true
+billing: {api_enabled: false}
+permissions: {allow_network: false, allow_dependency_install: false}
+execution: {task_timeout_seconds: 900, max_attempts: 2}
+providers:
+  claude-code:
+    models: [{id: opus, reasoning_tier: frontier}]
+  codex-cli:
+    options: {isolate_user_config: true}
+    models: [{id: default, reasoning_tier: unknown}]
+  antigravity-cli:
+    # A slug from `agy models`; change it to one your account offers.
+    models: [{id: gemini-3.8-flash-medium, reasoning_tier: balanced}]

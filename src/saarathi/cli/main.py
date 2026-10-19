@@ -296,6 +296,16 @@ def doctor(
         out.adapters.append(entry)
     lead, problems = resolve_lead(project.registry.models(), project.policy)
     out.lead = lead.candidate_id if lead else None
+    if (
+        lead
+        and lead.adapter in project.registry.adapters
+        and project.registry.get(lead.adapter).type_name == "antigravity-cli"
+    ):
+        problems = [
+            *problems,
+            "note: Antigravity as lead is less reliable than as a worker: a read-only call that "
+            "reaches for a disallowed tool ends without a result (one retry, then the run pauses).",
+        ]
     out.lead_problems = problems
 
     def show(d: DoctorOut) -> None:

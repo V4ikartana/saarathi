@@ -32,7 +32,7 @@ and one control plane:
 |---|---|---|
 | Codex CLI (`codex exec`) | **Verified live** on codex-cli 0.162.0-alpha.2 and alpha.17.2 (macOS) | [feasibility report](docs/phase0/feasibility-report.md) |
 | Claude Code (`claude -p`) ≥ 2.1.259 | **Verified live** on 2.1.302 (macOS, subscription login) | [compatibility matrix](docs/providers/compatibility-matrix.md) |
-| Antigravity / Gemini CLI | Not implemented (planned) | |
+| Antigravity CLI (`agy -p`) ≥ 1.4 | **Verified live** on 1.4.2 (macOS, Google account login); works best as a worker | [compatibility matrix](docs/providers/compatibility-matrix.md) |
 | Anthropic / OpenAI / Google APIs | Not implemented (planned, with budgets) | |
 
 ## Quick start

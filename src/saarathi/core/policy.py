@@ -222,8 +222,8 @@ orchestration:
     strategy: deterministic
 
 routing:
-  allowed_providers: [anthropic, openai]
-  allowed_models: ["anthropic/*", "openai/*"]
+  allowed_providers: [anthropic, openai, google]
+  allowed_models: ["anthropic/*", "openai/*", "google/*"]
   denied_models: []
   max_parallel_workers: 2
   escalate_after_failures: 2
@@ -273,5 +273,11 @@ providers:
       isolate_user_config: true   # pass --ignore-user-config (auth is still read by Codex itself)
     models:
       # "default" means the model selected by your Codex configuration; Codex does not report which.
+      - {id: default, reasoning_tier: unknown}
+  antigravity-cli:
+    enabled: true
+    binary: null              # null = look up `agy` on PATH
+    models:
+      # Add slugs from `agy models` (your account's list) to route to them explicitly.
       - {id: default, reasoning_tier: unknown}
 """
