@@ -68,7 +68,11 @@ examples/health-widget/demo.sh codex-only       # hosts without Claude Code
 | `saarathi pause` / `cancel` | Stop dispatching / cancel a run |
 | `saarathi review` / `report [--json]` | Evidence, lead verdict, diff summary, final report |
 | `saarathi logs [--task T-001]` | Redacted event log |
-| `saarathi route explain T-001` | Why each model was (or was not) chosen |
+| `saarathi route explain T-001` | Why each model was (or was not) chosen, including integration checks |
+| `saarathi integrations list` / `accounts` / `scan` | Registered connections, accounts (masked) and discovery status |
+| `saarathi integrations register` / `verify` / `revoke` | Declare a connection, confirm it, invalidate it |
+| `saarathi integrations alias` / `default` | Workspace-scoped account aliases and defaults |
+| `saarathi integrations approve` / `select` | Grant a pending approval or choose an account for one task |
 | `saarathi models list` / `policy validate` | Model catalogue and policy checks |
 
 Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (question, approval, review or pause) ·
@@ -85,6 +89,9 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
   Set `lead_substitute` to opt in to a named fallback.
 - Models are **declared** per adapter with your own `reasoning_tier`. Saarathi does not infer model IDs or
   entitlements from product names.
+- `integrations`: only verified or user-confirmed connections route; unverified identities fail closed;
+  user-declared identities, cross-provider data transfer and external side effects (`mail.send`, `*.delete`, ...)
+  need explicit approval. Accounts, aliases and defaults are scoped to `integrations.workspace`.
 
 ## Security and privacy
 
@@ -100,7 +107,14 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
 
 - Live verification so far covers one macOS host; Linux has offline tests only.
 - Operational orchestration is rule-based (retries with feedback, escalation by pausing). Model-backed triage is planned.
-- No API adapters, budget ledger or integration/account-aware routing (brief §12A) yet.
+- No API adapters or budget ledger yet.
+- Integration/account-aware routing (brief §12A) works on what you **register**, not on what Saarathi detects:
+  Claude Code and Codex CLI expose no documented integration inventory, so `integrations scan` reports `unverified`
+  and `integrations verify` can only record your confirmation, never provider verification. The lead's plan schema
+  carries integration requirements (checked live on both CLIs; real mail access is not). There is no cross-task
+  data handoff yet, so transfer field limits are recorded
+  rather than applied to content. Real Gmail/Outlook use is untested. See
+  [ADR-0008](docs/architecture/decisions/ADR-0008-integration-and-identity-aware-routing.md).
 - A failed task stays failed for that run. Recovery from escalations means a new run.
 - POSIX only (`fcntl` locking, process groups).
 

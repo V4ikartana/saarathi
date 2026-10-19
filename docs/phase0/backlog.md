@@ -23,14 +23,16 @@ Each item has a testable definition of done (DoD). `→` lists dependencies. Sta
 
 ## Phase 2: complete v0.1
 
-| ID | Item | → | DoD |
-|---|---|---|---|
-| P1 | Integration and account registry (§12A): accounts, connections, capabilities, aliases, defaults, tenant scope | S3, S6 | Scenarios G–P pass with fake adapters |
-| P2 | Integration-aware hard filters + `integrations` CLI | P1 | `route explain` shows integration rejections |
-| P3 | Budget ledger with atomic reservations; API adapters (Anthropic, OpenAI, Google) | S6 | Scenario C passes; concurrent reservations never exceed the cap |
-| P4 | Antigravity CLI adapter (verify non-TTY `-p` first) | S5 | Live probe or documented disablement |
-| P5 | Model-backed operations orchestrator (triage, checkpoint summaries) behind `OperationsAgent` | S11 | Scenario E: contract change pauses and needs lead approval to supersede the ADR |
-| P6 | Rate-limit backoff and provider exhaustion handling | S11 | Scenario D passes |
-| P7 | Memory proposals → lessons promotion with approval | S9 | Unapproved proposals never reach `lessons.md` |
-| P8 | CI (Linux/macOS), secret scanning, dependency audit, release packaging | – | Green CI on PRs |
-| P9 | Windows support (locking, process groups) | S12 | Test suite green on Windows |
+| ID | Item | → | DoD | Status |
+|---|---|---|---|---|
+| P1 | Integration and account registry (§12A): accounts, connections, capabilities, aliases, defaults, tenant scope | S3, S6 | Scenarios G–P pass with fake adapters | Done (ADR-0008; no runtime exposes a documented inventory, so discovery reports `unverified`) |
+| P2 | Integration-aware hard filters + `integrations` CLI | P1 | `route explain` shows integration rejections | Done |
+| P2a | Lead plan schema emits `integrations` (strict subset, nullable account/tenant/resource); plan check rejects two accounts of one service in a task | P2, live CLI re-check | Live lead plan with an integration requirement validates on both CLIs | Done (verified live on Claude Code 2.1.302 and codex-cli 0.162.0-alpha.17.2, 2026-10-19; see [evidence](evidence/live-plan-schema-integrations.md)) |
+| P2b | Cross-task data handoff that applies `share_fields` / `shareable_fields` to content | P2a | A dependent task receives only permitted fields of a dependency's result; a denied transfer pauses | Open (design proposal only) |
+| P3 | Budget ledger with atomic reservations; API adapters (Anthropic, OpenAI, Google) | S6 | Scenario C passes; concurrent reservations never exceed the cap |  |
+| P4 | Antigravity CLI adapter (verify non-TTY `-p` first) | S5 | Live probe or documented disablement |  |
+| P5 | Model-backed operations orchestrator (triage, checkpoint summaries) behind `OperationsAgent` | S11 | Scenario E: contract change pauses and needs lead approval to supersede the ADR |  |
+| P6 | Rate-limit backoff and provider exhaustion handling | S11 | Scenario D passes |  |
+| P7 | Memory proposals → lessons promotion with approval | S9 | Unapproved proposals never reach `lessons.md` |  |
+| P8 | CI (Linux/macOS), secret scanning, dependency audit, release packaging | – | Green CI on PRs |  |
+| P9 | Windows support (locking, process groups) | S12 | Test suite green on Windows |  |

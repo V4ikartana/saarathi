@@ -8,6 +8,7 @@ Evidence and dates are in [`docs/phase0/feasibility-report.md`](../phase0/feasib
 | Adapter status in v0.1 | **Enabled, verified live** | **Enabled, verified live** (Pro subscription login) | Not implemented (Phase 2) | Not implemented (Phase 2) |
 | Non-interactive execution | V `codex exec` | V `claude -p`, prompt on stdin | D `agy -p` (secondary source) | n/a |
 | Structured final output | V `--output-schema` + `-o` | V `--json-schema` → `structured_output` | D `--output-format json` (no schema flag verified) | D |
+| Strict schema with nullable fields and nested closed objects (lead plan with `integrations`) | V (alpha.17.2, 2026-10-19) | V (2.1.302, 2026-10-19) | – | n/a |
 | Event stream | V `--json` JSONL | D `--output-format stream-json` (Saarathi uses `json`) | D | n/a |
 | Workspace write restriction | V `--sandbox workspace-write` (OS sandbox) | V writes stayed in the worktree; enforced by permission rules only, and Bash is not OS-sandboxed | – | n/a |
 | Read-only mode | V `--sandbox read-only` blocked a requested write | V `--tools Read,Glob,Grep` + `dontAsk` blocked a requested write | – | n/a |
@@ -17,4 +18,6 @@ Evidence and dates are in [`docs/phase0/feasibility-report.md`](../phase0/feasib
 | Cancellation | V process-group kill (Saarathi runner tests) | D SIGTERM → exit 143, kills Bash tree | – | n/a |
 | Auth status check | V `codex login status` | V `claude auth status` (`authMethod: claude.ai`) | – | env var presence |
 | Ignore user/repo config | V `--ignore-user-config` | D `--setting-sources user`, `--strict-mcp-config` (user hooks still load) | – | n/a |
+| Integration inventory (connected services, accounts, scopes) | – no documented interface; `integrations scan` reports `unverified` | – no documented interface; `integrations scan` reports `unverified` | – | n/a |
+| Safe integration probe | – (`verify` can only record user confirmation) | – (`verify` can only record user confirmation) | – | n/a |
 | Automation policy | API key recommended; ChatGPT auth on trusted machines | Subscription for "ordinary use"; see ADR-0006 | Consumer tiers moved to Antigravity 2026-06-18 | Metered; budgets required |

@@ -17,7 +17,16 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 - CLI: init, doctor (with `--live`), models list, policy validate, run, resume, answer, approve, status,
   tasks, logs, pause, cancel, review, report, route explain.
 - Example project `examples/health-widget` and demo script; live Claude-led two-provider run recorded.
+- Integration- and identity-aware routing (brief §12A, ADR-0008): workspace-scoped account/connection registry
+  (schema migration 2), `IntegrationDiscoveryAdapter` contract, `IntegrationRequirementMatcher` hard filters,
+  cross-provider transfer policy, single-use side-effect approvals, a recheck before dispatch, and
+  `saarathi integrations list|accounts|scan|register|verify|revoke|alias|default|approve|select`.
+  Discovery reports `unverified` for every supported CLI.
+- The lead's strict plan schema carries per-task `integrations` (one account per requirement; nullable
+  account/tenant/resource), and plan checks reject a task that uses two accounts of one service. Verified live on
+  Claude Code and Codex CLI (`docs/phase0/evidence/live-plan-schema-integrations.md`).
 
 ### Fixed
+- Two checkpoints written for one run within the same second no longer collide.
 - Build artifacts from workers' test runs (`__pycache__`, caches) no longer fail scope checks
   (`execution.ignored_artifacts`).

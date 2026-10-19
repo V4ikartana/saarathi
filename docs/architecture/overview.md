@@ -8,7 +8,8 @@ saarathi CLI (typer)
    │
    ├── orchestration/engine.py      run + task state machines, scheduler, recovery, integration
    │      ├── orchestration/lead.py   engineering lead: intake, plan, final review (structured, read-only)
-   │      ├── routing/router.py       hard filters → capacity → explainable score
+   │      ├── routing/router.py       hard filters (incl. integrations) → capacity → explainable score
+   │      ├── integrations/           account/connection registry, discovery contract, requirement matcher
    │      ├── providers/*             ProviderAdapter port: codex_cli, claude_cli, fake (tests)
    │      ├── git/workspace.py        worktrees outside the repo, scope checks, integration merges
    │      ├── verification/           command policy + Saarathi-run checks → evidence
@@ -57,5 +58,6 @@ Scenario B tests (`tests/e2e/test_recovery.py`) SIGKILL a real `saarathi` proces
 
 ## What is deliberately not here yet
 
-The model-backed operations orchestrator, API adapters and budget ledger, the integration/account registry (§12A)
-and Antigravity/Gemini are not built yet. See [`docs/phase0/backlog.md`](../phase0/backlog.md).
+The model-backed operations orchestrator, API adapters and budget ledger, and Antigravity/Gemini are not built yet.
+Integration routing (§12A, [ADR-0008](decisions/ADR-0008-integration-and-identity-aware-routing.md)) works on registered
+connections only: no supported CLI documents an integration inventory. See [`docs/phase0/backlog.md`](../phase0/backlog.md).
