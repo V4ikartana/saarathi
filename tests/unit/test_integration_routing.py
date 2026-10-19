@@ -544,7 +544,7 @@ def test_existing_v1_database_upgrades_in_place(tmp_path):
     old.commit()
     old.close()
     conn = connect(path)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {
         "worker_instance",
@@ -554,5 +554,7 @@ def test_existing_v1_database_upgrades_in_place(tmp_path):
         "account_alias",
         "account_default",
         "task_requirement",
+        "provider_health",
+        "escalations",
         "runs",
     } <= tables

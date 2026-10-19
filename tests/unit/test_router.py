@@ -131,3 +131,12 @@ def test_lead_is_pinned_and_never_silently_substituted():
     down = model("claude-code", "opus", "anthropic", ReasoningTier.FRONTIER, available=False)
     lead, problems = resolve_lead([down, CODEX], policy())
     assert lead is None and "unavailable" in problems[0]
+
+
+def test_cooling_adapter_is_skipped_and_reported():
+    load = RuntimeLoad(cooldowns={"codex-cli": ("cooling_down", "2026-10-19T10:00:00.000+00:00", "429")})
+    d = route(req(), [CODEX, OPUS], policy(), load)
+    assert d.chosen == "claude-code:opus" and d.cooling == ["codex-cli:default"]
+    only = route(req(), [CODEX], policy(), load)
+    assert only.chosen is None and "limited by its provider" in only.reason
+    assert only.available_at == "2026-10-19T10:00:00.000+00:00"

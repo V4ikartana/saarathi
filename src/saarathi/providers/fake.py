@@ -8,7 +8,8 @@ Registered only when ``SAARATHI_ALLOW_FAKE_PROVIDERS=1``. Its behavior comes fro
     }
 
 Attempt actions: ``write`` {relative path: content}, ``write_outside`` {absolute path: content},
-``sleep`` seconds, ``fail`` ("process" | "rate_limit" | "auth" | "invalid_output"), ``report`` (WorkerReport).
+``sleep`` seconds, ``fail`` (an ErrorKind value, e.g. "rate_limit" or "quota_exhausted"), ``fail_on`` (adapter
+names the failure applies to; default all), ``report`` (WorkerReport).
 Every invocation is appended to ``options.record_path`` (JSONL) so tests can count executions.
 """
 
@@ -131,7 +132,7 @@ class FakeAdapter(ProviderAdapter):
             target.write_text(content, encoding="utf-8")
         for absolute, content in step.get("write_outside", {}).items():
             Path(absolute).write_text(content, encoding="utf-8")
-        if step.get("fail"):
+        if step.get("fail") and self.name in step.get("fail_on", [self.name]):
             kind = ErrorKind(step["fail"])
             return InvocationResult(
                 ok=False,

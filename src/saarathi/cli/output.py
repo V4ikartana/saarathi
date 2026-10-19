@@ -48,10 +48,12 @@ class ModelOut(BaseModel):
     reasoning_tier: str
     metered: bool
     source: str
+    provider_limit: str | None = None  # active cooldown after a rate-limit or quota error
 
     @classmethod
-    def from_descriptor(cls, m: ModelDescriptor) -> ModelOut:
+    def from_descriptor(cls, m: ModelDescriptor, provider_limit: str | None = None) -> ModelOut:
         return cls(
+            provider_limit=provider_limit,
             candidate=m.candidate_id,
             provider=m.provider,
             adapter=m.adapter,

@@ -30,7 +30,14 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   fields policy permits (`share_fields`, approved cross-provider transfers), redacted and size-capped, with
   field names audited in `handoff.prepared` events. Integration data cannot be passed on through an intermediate task.
 
+- Provider limits (Scenario D): quota exhaustion is told apart from transient rate limits; a limited adapter
+  cools down (escalating 30 s / 2 min / 5 min, then "exhausted" for an hour, all configurable) and routing moves
+  work to other eligible workers. Short cooldowns are waited out; exhaustion pauses the run with diagnostics.
+  Limit retries are bounded per task and do not use the failure budget. New `saarathi providers status|reset`;
+  `models list` and `doctor` show active limits.
+
 ### Fixed
+- Unblocking a task on resume no longer makes it READY before its dependencies have succeeded.
 - Dependent tasks now start from their dependencies' verified commits instead of the bare run base; conflicting
   dependencies block the task with a checkpoint (ADR-0009).
 - Two checkpoints written for one run within the same second no longer collide.

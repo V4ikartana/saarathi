@@ -24,7 +24,7 @@ def test_codex_recorded_success():
 def test_codex_failure_modes_fail_closed():
     assert parse_codex_output("", "", None, True, 1, None).error_kind is ErrorKind.TIMEOUT
     failed = json.dumps({"type": "turn.failed", "error": {"message": "You've hit your usage limit"}})
-    assert parse_codex_output(failed, "", 1, False, 1, None).error_kind is ErrorKind.RATE_LIMIT
+    assert parse_codex_output(failed, "", 1, False, 1, None).error_kind is ErrorKind.QUOTA_EXHAUSTED
     assert parse_codex_output("", "", 0, False, 1, None).error_kind is ErrorKind.INVALID_OUTPUT
     assert parse_codex_output("", "", 0, False, 1, "not json").error_kind is ErrorKind.INVALID_OUTPUT
     assert parse_codex_output("", "", 0, False, 1, "[1]").error_kind is ErrorKind.INVALID_OUTPUT
@@ -119,5 +119,8 @@ def test_claude_version_parsing():
 
 def test_error_classification():
     assert classify_error("Error: Too Many Requests") is ErrorKind.RATE_LIMIT
+    assert classify_error("API Error: 529 overloaded") is ErrorKind.RATE_LIMIT
+    assert classify_error("You've hit your usage limit. Upgrade or try again in 3 hours") is ErrorKind.QUOTA_EXHAUSTED
+    assert classify_error("Your credit balance is too low") is ErrorKind.QUOTA_EXHAUSTED
     assert classify_error("401 Unauthorized") is ErrorKind.AUTH
     assert classify_error("segfault") is ErrorKind.PROCESS

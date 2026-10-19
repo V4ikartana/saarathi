@@ -49,6 +49,8 @@ class RuntimeLoad:
     in_flight: dict[str, int] = field(default_factory=dict)  # candidate_id -> running attempts
     providers_in_flight: dict[str, int] = field(default_factory=dict)
     history: dict[str, tuple[int, int]] = field(default_factory=dict)  # candidate_id -> (ok, finished)
+    # adapter -> (state, until ISO time, reason) for adapters currently cooling down after provider limits
+    cooldowns: dict[str, tuple[str, str, str]] = field(default_factory=dict)
 
 
 def hard_filter(model: ModelDescriptor, req: RoutingRequest, policy: Policy) -> list[str]:
@@ -128,6 +130,9 @@ def route(
     match = _match_integrations(req, policy, integrations)
     rejected: list[RejectedCandidate] = []
     busy: list[str] = []
+    cooling: list[str] = []
+    cooling_notes: dict[str, str] = {}
+    available_at: str | None = None
     pending: list[ApprovalNeed] = []
     scored: list[tuple[float, str, ModelDescriptor, dict[str, float]]] = []
     connections: dict[str, list[str]] = {}
@@ -143,6 +148,13 @@ def route(
                 connections[model.candidate_id] = check.connections
         if reasons:
             rejected.append(RejectedCandidate(candidate=model.candidate_id, reasons=reasons))
+            continue
+        limit = load.cooldowns.get(model.adapter)
+        if limit is not None:
+            state, until, why = limit
+            cooling.append(model.candidate_id)
+            cooling_notes[model.adapter] = f"{model.adapter} {state.replace('_', ' ')} until {until} ({why})"
+            available_at = until if available_at is None else min(available_at, until)
             continue
         if load.in_flight.get(model.candidate_id, 0) >= model.constraints.max_parallel:
             busy.append(model.candidate_id)
@@ -166,6 +178,8 @@ def route(
             rejected=rejected,
             awaiting=awaiting,
             integration=trace,
+            cooling=cooling,
+            available_at=available_at,
         )
 
     if match is not None and match.blocked:  # task-level: no candidate may run, busy or not
@@ -173,6 +187,9 @@ def route(
     if not scored:
         if busy:
             return blocked("all eligible candidates are at capacity; task waits", waiting=busy)
+        if cooling:
+            notes = "; ".join(cooling_notes[a] for a in sorted(cooling_notes))
+            return blocked(f"every eligible worker is limited by its provider: {notes}")
         if pending:
             keys = "; ".join(f"{p.key} ({p.detail})" for p in pending)
             return blocked(f"awaiting approval: {keys}", "approval")
@@ -195,6 +212,7 @@ def route(
         score_breakdown=breakdown,
         alternatives=[c for _, c, _, _ in scored[1:]],
         busy=busy,
+        cooling=cooling,
         rejected=rejected,
         estimated_cost_usd=0.0 if not model.pricing.metered else None,
         integration=trace,

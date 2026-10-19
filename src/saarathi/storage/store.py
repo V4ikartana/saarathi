@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -92,6 +92,15 @@ class AttemptRecord:
     result: dict[str, Any] | None
     started_at: str
     finished_at: str | None
+
+
+@dataclass(frozen=True)
+class ProviderHealth:
+    adapter: str
+    state: str  # cooling_down | exhausted
+    until: str
+    reason: str
+    consecutive: int
 
 
 @dataclass(frozen=True)
@@ -653,3 +662,57 @@ class StateStore:
                 return None
             conn.execute("DELETE FROM control WHERE run_id=? AND key=?", (run_id, key))
             return str(row[0])
+
+    # ------------------------------------------------------------------ provider health (Scenario D)
+
+    def provider_health(self) -> dict[str, ProviderHealth]:
+        rows = self._conn.execute("SELECT * FROM provider_health").fetchall()
+        return {
+            r["adapter"]: ProviderHealth(r["adapter"], r["state"], r["until"], r["reason"], int(r["consecutive"]))
+            for r in rows
+        }
+
+    def record_provider_limit(
+        self,
+        adapter: str,
+        *,
+        exhausted: bool,
+        reason: str,
+        cooldowns: Sequence[float],
+        exhausted_seconds: float,
+        actor: str,
+        run_id: str | None = None,
+    ) -> ProviderHealth:
+        """Escalating cooldowns for consecutive limit hits; exhaustion after the last step or on quota errors."""
+        with self.transaction() as conn:
+            previous = self.provider_health().get(adapter)
+            consecutive = (previous.consecutive if previous else 0) + 1
+            if exhausted or consecutive > len(cooldowns):
+                state, seconds = "exhausted", exhausted_seconds
+            else:
+                state, seconds = "cooling_down", cooldowns[consecutive - 1]
+            until = (datetime.now(UTC) + timedelta(seconds=seconds)).isoformat(timespec="milliseconds")
+            short = reason[:500]
+            conn.execute(
+                "INSERT INTO provider_health (adapter, state, until, reason, consecutive, updated_at)"
+                " VALUES (?,?,?,?,?,?) ON CONFLICT(adapter) DO UPDATE SET state=excluded.state,"
+                " until=excluded.until, reason=excluded.reason, consecutive=excluded.consecutive,"
+                " updated_at=excluded.updated_at",
+                (adapter, state, until, short, consecutive, utcnow()),
+            )
+            self.append_event(
+                "provider.limited",
+                {"adapter": adapter, "state": state, "until": until, "consecutive": consecutive, "reason": short},
+                actor=actor,
+                run_id=run_id,
+            )
+        return ProviderHealth(adapter, state, until, short, consecutive)
+
+    def clear_provider_health(self, adapter: str, *, actor: str, reason: str, run_id: str | None = None) -> bool:
+        with self.transaction() as conn:
+            cur = conn.execute("DELETE FROM provider_health WHERE adapter = ?", (adapter,))
+            if cur.rowcount:
+                self.append_event(
+                    "provider.recovered", {"adapter": adapter, "reason": reason}, actor=actor, run_id=run_id
+                )
+            return bool(cur.rowcount)

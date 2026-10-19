@@ -33,7 +33,7 @@ Each item has a testable definition of done (DoD). `→` lists dependencies. Sta
 | P3 | Budget ledger with atomic reservations; API adapters (Anthropic, OpenAI, Google) | S6 | Scenario C passes; concurrent reservations never exceed the cap |  |
 | P4 | Antigravity CLI adapter (verify non-TTY `-p` first) | S5 | Live probe or documented disablement |  |
 | P5 | Model-backed operations orchestrator (triage, checkpoint summaries) behind `OperationsAgent` | S11 | Scenario E: contract change pauses and needs lead approval to supersede the ADR |  |
-| P6 | Rate-limit backoff and provider exhaustion handling | S11 | Scenario D passes |  |
+| P6 | Rate-limit backoff and provider exhaustion handling | S11 | Scenario D passes | Done (offline; live limit errors not yet observed) |
 | P7 | Memory proposals → lessons promotion with approval | S9 | Unapproved proposals never reach `lessons.md` |  |
 | P8 | CI (Linux/macOS), secret scanning, dependency audit, release packaging | – | Green CI on PRs |  |
 | P9 | Windows support (locking, process groups) | S12 | Test suite green on Windows |  |

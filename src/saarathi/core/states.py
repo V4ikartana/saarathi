@@ -65,7 +65,7 @@ _TASK_EDGES: dict[TaskState, frozenset[TaskState]] = {
     _T.RUNNING: frozenset({_T.VERIFYING, _T.RETRY_WAIT, _T.FAILED, _T.BLOCKED}),
     _T.VERIFYING: frozenset({_T.SUCCEEDED, _T.RETRY_WAIT, _T.FAILED}),
     _T.RETRY_WAIT: frozenset({_T.READY, _T.FAILED, _T.BLOCKED}),
-    _T.BLOCKED: frozenset({_T.READY, _T.FAILED}),
+    _T.BLOCKED: frozenset({_T.READY, _T.PENDING, _T.FAILED}),
 }
 
 

@@ -196,6 +196,33 @@ MIGRATIONS: tuple[str, ...] = (
         PRIMARY KEY (run_id, task_id, idx)
     );
     """,
+    # 3: provider health (Scenario D) and escalations (Scenario E)
+    """
+    CREATE TABLE provider_health (
+        adapter TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        until TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        consecutive INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE escalations (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id),
+        task_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        report_json TEXT NOT NULL,
+        status TEXT NOT NULL,
+        checkpoint TEXT,
+        verdict_json TEXT,
+        resolution TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX escalations_run ON escalations(run_id, status);
+    """,
 )
 
 

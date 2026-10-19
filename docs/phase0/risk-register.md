@@ -13,7 +13,7 @@ Scale: likelihood/impact H/M/L. Owners default to the maintainers.
 | R7 | Gemini CLI replaced by Antigravity CLI for consumer users | H | M | Target Antigravity CLI in Phase 2. Verify `-p` TTY behavior first | Open |
 | R8 | Orphaned worker processes keep writing after an engine crash | M | M | Workers run in their own process group. The pgid is persisted and killed during reconciliation, and the worktree is reset before retry | Mitigated |
 | R14 | Workers' own test runs leave build artifacts that fail scope checks | H | M | `execution.ignored_artifacts` excludes them from staging (found in the live run) | Mitigated |
-| R9 | Rate-limit and usage-limit errors are only text, with no stable codes for Codex | M | M | Pattern-based classification, bounded backoff, then pause | Partially mitigated |
+| R9 | Rate-limit and usage-limit errors are only text, with no stable codes for Codex | M | M | Pattern-based classification into transient rate limits and quota exhaustion; per-adapter escalating cooldowns; bounded per-task limit retries outside the failure budget; pause when every eligible worker is exhausted. Real limit messages are not yet recorded as fixtures | Partially mitigated |
 | R10 | Cost runaway via API keys inherited by CLIs | M | H | Environment allowlist drops `*_API_KEY` unless configured. API-key-authenticated CLIs are classified as metered and blocked when the API is disabled | Mitigated |
 | R11 | Prompt injection in repository docs steering workers | H | M | Untrusted-data envelopes, deterministic routing and permissions, command policy on plans, scope enforcement | Mitigated (tests in Scenario F) |
 | R12 | `fcntl` lock and process-group handling are POSIX-only | M | L | Windows support is backlog; CI on Linux and macOS first | Open |

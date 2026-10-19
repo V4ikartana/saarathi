@@ -31,7 +31,8 @@ class InvocationMode(StrEnum):
 
 class ErrorKind(StrEnum):
     NONE = "none"
-    RATE_LIMIT = "rate_limit"
+    RATE_LIMIT = "rate_limit"  # transient: retry after a short cooldown
+    QUOTA_EXHAUSTED = "quota_exhausted"  # plan or credit limit: the provider is out until its window resets
     AUTH = "auth"
     TIMEOUT = "timeout"
     INVALID_OUTPUT = "invalid_output"
@@ -92,11 +93,17 @@ class ProbeResult:
     checked_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
 
 
-_RATE_LIMIT = re.compile(r"(?i)rate[ _-]?limit|usage limit|too many requests|\b429\b|quota|overloaded")
+_QUOTA = re.compile(
+    r"(?i)usage limit|quota|credit balance|out of credits|billing|limit (?:has been )?reached|plan limit|weekly limit"
+)
+_RATE_LIMIT = re.compile(r"(?i)rate[ _-]?limit|too many requests|\b429\b|overloaded|\b529\b|try again later")
 _AUTH = re.compile(r"(?i)not logged in|unauthori[sz]ed|\b401\b|authentication|please log ?in|invalid api key")
 
 
 def classify_error(text: str) -> ErrorKind:
+    """Classify provider error text. Quota beats rate limit: "rate limit ... usage quota" is exhaustion."""
+    if _QUOTA.search(text):
+        return ErrorKind.QUOTA_EXHAUSTED
     if _RATE_LIMIT.search(text):
         return ErrorKind.RATE_LIMIT
     if _AUTH.search(text):

@@ -75,3 +75,23 @@ def test_secrets_redacted_in_events(tmp_path):
     s.append_event("x", {"note": "token supersecretvalue123 and sk-ant-abcdefghijklmnop"}, actor="t", run_id=run.id)
     payload = s.events(run.id)[-1].payload["note"]
     assert "supersecretvalue123" not in payload and "sk-ant-abcdefghijklmnop" not in payload
+
+
+def test_provider_cooldowns_escalate_then_exhaust_and_clear(store):
+    a = store.record_provider_limit(
+        "codex", exhausted=False, reason="429", cooldowns=[1, 2], exhausted_seconds=99, actor="t"
+    )
+    b = store.record_provider_limit(
+        "codex", exhausted=False, reason="429", cooldowns=[1, 2], exhausted_seconds=99, actor="t"
+    )
+    c = store.record_provider_limit(
+        "codex", exhausted=False, reason="429", cooldowns=[1, 2], exhausted_seconds=99, actor="t"
+    )
+    assert [a.state, b.state, c.state] == ["cooling_down", "cooling_down", "exhausted"]
+    assert [a.consecutive, b.consecutive, c.consecutive] == [1, 2, 3] and a.until < b.until < c.until
+    q = store.record_provider_limit(
+        "claude", exhausted=True, reason="usage limit", cooldowns=[1], exhausted_seconds=9, actor="t"
+    )
+    assert q.state == "exhausted"
+    assert store.clear_provider_health("codex", actor="t", reason="ok") and "codex" not in store.provider_health()
+    assert not store.clear_provider_health("codex", actor="t", reason="ok")

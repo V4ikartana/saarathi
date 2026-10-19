@@ -318,6 +318,7 @@ class WorkerResult(Strict):
     verification: list[CommandEvidence] = Field(default_factory=list)
     worker_report: WorkerReport | None = None
     usage: Usage = Field(default_factory=Usage)
+    error_kind: str | None = None  # provider error class when the invocation itself failed
     # "<task>.<field>" inputs this attempt received from dependencies after policy filtering.
     received_inputs: list[str] = Field(default_factory=list)
 
@@ -403,6 +404,8 @@ class RoutingDecision(Strict):
     reason: str
     score_breakdown: dict[str, float] = Field(default_factory=dict)
     alternatives: list[str] = Field(default_factory=list)
+    cooling: list[str] = Field(default_factory=list)  # eligible, but their adapter is cooling down
+    available_at: str | None = None  # earliest time a cooling candidate is usable again
     busy: list[str] = Field(default_factory=list)
     rejected: list[RejectedCandidate] = Field(default_factory=list)
     estimated_cost_usd: float | None = None

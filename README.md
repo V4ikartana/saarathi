@@ -73,7 +73,8 @@ examples/health-widget/demo.sh codex-only       # hosts without Claude Code
 | `saarathi integrations register` / `verify` / `revoke` | Declare a connection, confirm it, invalidate it |
 | `saarathi integrations alias` / `default` | Workspace-scoped account aliases and defaults |
 | `saarathi integrations approve` / `select` | Grant a pending approval or choose an account for one task |
-| `saarathi models list` / `policy validate` | Model catalogue and policy checks |
+| `saarathi models list` / `policy validate` | Model catalogue (with active provider limits) and policy checks |
+| `saarathi providers status` / `reset ADAPTER` | Provider cooldowns after rate-limit or quota errors; clear one early |
 
 Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (question, approval, review or pause) ·
 `4` failed · `5` policy blocks progress · `6` another engine holds the project lock.
@@ -107,6 +108,8 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
 
 - Live verification so far covers one macOS host; Linux has offline tests only.
 - Operational orchestration is rule-based (retries with feedback, escalation by pausing). Model-backed triage is planned.
+- Provider limits are recognized from error text (no stable codes); real rate-limit and quota messages have not
+  yet been captured from a live run, so classification may miss a provider's wording.
 - No API adapters or budget ledger yet.
 - Integration/account-aware routing (brief §12A) works on what you **register**, not on what Saarathi detects:
   Claude Code and Codex CLI expose no documented integration inventory, so `integrations scan` reports `unverified`

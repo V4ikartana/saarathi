@@ -54,7 +54,7 @@ LEASE_TTL = timedelta(minutes=2)
 HEARTBEAT_SECONDS = 20.0
 GRANT_PREFIX = "grant:"  # control key prefix for integration approvals granted in a run
 SELECT_PREFIX = "select:"  # control key prefix for per-task account selections
-RATE_LIMIT_BACKOFF_SECONDS = (30.0, 120.0, 300.0)
+LIMIT_KINDS = frozenset({ErrorKind.RATE_LIMIT.value, ErrorKind.QUOTA_EXHAUSTED.value})
 WORKER_CAPABILITIES = ("code_generation", "workspace_write", "structured_output")
 
 
@@ -99,6 +99,7 @@ class Engine:
         self.accept_defaults = accept_defaults
         self.owner = f"engine-{os.getpid()}-{uuid.uuid4().hex[:6]}"
         self._running: dict[asyncio.Task[None], _Running] = {}
+        self._cooldown_until: str | None = None  # earliest end of a provider cooldown a READY task waits for
 
     # ================================================================== entry points
 
@@ -348,6 +349,11 @@ class Engine:
         if all(t.state is TaskState.SUCCEEDED for t in tasks):
             self.p.store.transition_run(run_id, RunState.VERIFYING, actor=ACTOR)
             return True
+        if self._cooldown_until and any(t.state is TaskState.READY for t in tasks):
+            delay = (datetime.fromisoformat(self._cooldown_until) - datetime.now(UTC)).total_seconds()
+            self.io.info(f"Waiting {max(delay, 0):.0f}s for a provider cooldown to end.")
+            await asyncio.sleep(max(0.0, delay) + 0.05)
+            return True
         waiting = [t for t in tasks if t.state is TaskState.RETRY_WAIT]
         if waiting:
             delay = min(self._retry_delay(run_id, t.id) for t in waiting)
@@ -392,6 +398,10 @@ class Engine:
         for meta in self._running.values():
             load.in_flight[meta.candidate] = load.in_flight.get(meta.candidate, 0) + 1
             load.providers_in_flight[meta.provider] = load.providers_in_flight.get(meta.provider, 0) + 1
+        now = utcnow()
+        for health in self.p.store.provider_health().values():
+            if health.until > now:
+                load.cooldowns[health.adapter] = (health.state, health.until, health.reason)
         return load
 
     def _routing_request(self, run_id: str, task: TaskRecord) -> RoutingRequest:
@@ -454,6 +464,7 @@ class Engine:
 
     def _dispatch(self, run_id: str) -> None:
         models = self.p.registry.models()
+        self._cooldown_until = None
         for task in self.p.store.tasks(run_id):
             if len(self._running) >= self.p.policy.routing.max_parallel_workers:
                 return
@@ -465,6 +476,11 @@ class Engine:
             decision = route(req, models, self.p.policy, self._load(), self._snapshot_for(req))
             if decision.chosen is None and decision.busy:
                 continue  # wait for capacity; not recorded to keep the log readable
+            if decision.chosen is None and decision.cooling and self._can_wait_for_cooldown(decision):
+                assert decision.available_at
+                until = decision.available_at
+                self._cooldown_until = until if self._cooldown_until is None else min(self._cooldown_until, until)
+                continue
             self.p.store.save_decision(run_id, decision, actor="router")
             if decision.chosen is None:
                 self.p.store.transition_task(
@@ -690,7 +706,10 @@ class Engine:
             model=result.usage.reported_model or model.id,
             transport=model.transport,
             usage=result.usage,
+            error_kind=None if result.ok else str(result.error_kind),
         )
+        if result.ok:
+            store.clear_provider_health(model.adapter, actor=ACTOR, reason="successful invocation", run_id=run_id)
         if result.structured is not None:
             with contextlib.suppress(Exception):
                 assessment.worker_report = WorkerReport.model_validate(result.structured)
@@ -818,6 +837,9 @@ class Engine:
                 result=assessment.model_dump(mode="json"),
             )
             return
+        if kind in (ErrorKind.RATE_LIMIT, ErrorKind.QUOTA_EXHAUSTED):
+            self._provider_limited(run_id, task_id, attempt, assessment, kind)
+            return
         failures = task.failures + 1
         limit = min(task.packet.max_attempts, self.p.policy.routing.escalate_after_failures)
         if failures >= limit:
@@ -840,9 +862,53 @@ class Engine:
             reason=assessment.failure_reason,
             result=assessment.model_dump(mode="json"),
         )
-        if kind is ErrorKind.RATE_LIMIT:
-            delay = RATE_LIMIT_BACKOFF_SECONDS[min(failures - 1, len(RATE_LIMIT_BACKOFF_SECONDS) - 1)]
-            store.set_control(run_id, f"retry_at:{task_id}", _later(timedelta(seconds=delay)), actor=ACTOR)
+
+    def _provider_limited(
+        self, run_id: str, task_id: str, attempt: AttemptRecord, assessment: WorkerResult, kind: ErrorKind
+    ) -> None:
+        """A provider limit is not the task's fault: cool the adapter down and retry, within a bound (Scenario D).
+
+        It does not use the task's failure budget. Routing then avoids the cooling adapter; if every eligible
+        worker is cooling, the task waits (short cooldowns) or is blocked for a person (exhaustion).
+        """
+        store, cfg = self.p.store, self.p.policy.execution
+        health = store.record_provider_limit(
+            attempt.adapter,
+            exhausted=kind is ErrorKind.QUOTA_EXHAUSTED,
+            reason=assessment.failure_reason or str(kind),
+            cooldowns=cfg.rate_limit_cooldown_seconds,
+            exhausted_seconds=cfg.quota_cooldown_seconds,
+            actor=ACTOR,
+            run_id=run_id,
+        )
+        limited = sum(1 for a in store.attempts(run_id, task_id) if (a.result or {}).get("error_kind") in LIMIT_KINDS)
+        result = assessment.model_dump(mode="json")
+        if limited >= cfg.max_rate_limit_retries:
+            reason = (
+                f"provider limits stopped this task {limited} times (max_rate_limit_retries); "
+                f"last: {health.adapter} {health.state.replace('_', ' ')} until {health.until}"
+            )
+            store.transition_task(run_id, task_id, TaskState.BLOCKED, actor=ACTOR, blocked_reason=reason, result=result)
+            return
+        store.transition_task(
+            run_id,
+            task_id,
+            TaskState.RETRY_WAIT,
+            actor=ACTOR,
+            reason=f"{health.adapter} {health.state.replace('_', ' ')} until {health.until}",
+            result=result,
+        )
+
+    def _can_wait_for_cooldown(self, decision: RoutingDecision) -> bool:
+        """Wait in place only for short, ordinary cooldowns; exhaustion or long waits go to a person."""
+        if not decision.available_at:
+            return False
+        adapters = {c.split(":", 1)[0] for c in decision.cooling}
+        health = self.p.store.provider_health()
+        if any(health[a].state != "cooling_down" for a in adapters if a in health):
+            return False
+        wait = (datetime.fromisoformat(decision.available_at) - datetime.now(UTC)).total_seconds()
+        return wait <= self.p.policy.execution.max_cooldown_wait_seconds
 
     async def _heartbeat(self, run_id: str, task_id: str) -> None:
         while True:
@@ -1030,11 +1096,17 @@ class Engine:
                 self.retry_blocked(run_id)
 
     def retry_blocked(self, run_id: str) -> list[str]:
-        """Return blocked tasks to READY so routing is re-evaluated (explicit user decision)."""
+        """Unblock tasks so routing is re-evaluated (explicit user decision).
+
+        A task whose dependencies have not all succeeded goes back to PENDING, never straight to READY.
+        """
+        tasks = {t.id: t for t in self.p.store.tasks(run_id)}
         revived = []
-        for t in self.p.store.tasks(run_id):
+        for t in sorted(tasks.values(), key=lambda t: t.id):
             if t.state is TaskState.BLOCKED:
-                self.p.store.transition_task(run_id, t.id, TaskState.READY, actor="user", reason="user retry")
+                deps_done = all(tasks[d].state is TaskState.SUCCEEDED for d in t.packet.dependencies)
+                target = TaskState.READY if deps_done else TaskState.PENDING
+                self.p.store.transition_task(run_id, t.id, target, actor="user", reason="user retry")
                 revived.append(t.id)
         return revived
 

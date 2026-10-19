@@ -95,6 +95,14 @@ class ExecutionConfig(Strict):
     max_attempts: int = Field(default=2, ge=1, le=5)
     env_passthrough: list[str] = Field(default_factory=list)
     max_log_bytes: int = Field(default=2_000_000, ge=10_000)
+    # Provider limits (Scenario D). A rate-limited adapter cools down for these seconds on consecutive hits;
+    # after the last step, or on quota exhaustion, it is treated as exhausted for quota_cooldown_seconds.
+    rate_limit_cooldown_seconds: list[float] = Field(default_factory=lambda: [30.0, 120.0, 300.0], min_length=1)
+    quota_cooldown_seconds: float = Field(default=3600.0, gt=0)
+    # Wait in place for a cooling adapter only if it is back within this many seconds; otherwise pause.
+    max_cooldown_wait_seconds: float = Field(default=600.0, ge=0)
+    # Provider-limit retries per task before the task is blocked for a person to decide.
+    max_rate_limit_retries: int = Field(default=3, ge=1, le=10)
     # Build artifacts that are never committed or counted as task changes.
     ignored_artifacts: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_ARTIFACTS))
 

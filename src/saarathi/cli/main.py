@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -55,6 +56,8 @@ route_app = typer.Typer(help="Routing decisions.", no_args_is_help=True)
 app.add_typer(models_app, name="models")
 app.add_typer(policy_app, name="policy")
 app.add_typer(route_app, name="route")
+providers_app = typer.Typer(help="Provider limits and cooldowns.", no_args_is_help=True)
+app.add_typer(providers_app, name="providers")
 integrations_app = typer.Typer(
     help="Integration and account registry: which worker may do what, on which account.", no_args_is_help=True
 )
@@ -272,6 +275,7 @@ def doctor(
             "checks": [c.__dict__ for c in probe.checks],
             "notices": probe.notices,
             "live": None,
+            "provider_limit": _active_limits(project).get(name),
         }
         if live and probe.available and adapter.config.models and not probe.test_only:
             if not json_out:
@@ -298,6 +302,10 @@ def doctor(
                 typer.echo(f"     [{'pass' if c['ok'] else 'FAIL'}] {c['name']}: {c['detail']}")
             if a["reason"]:
                 typer.echo(f"     unavailable: {a['reason']}")
+            if a["provider_limit"]:
+                typer.echo(
+                    f"     provider limit: {a['provider_limit']} (clear early: saarathi providers reset {a['name']})"
+                )
             if a["live"]:
                 typer.echo(f"     live probe: {'pass' if a['live']['ok'] else 'FAIL'} - {a['live']['detail']}")
             for n in a["notices"]:
@@ -314,17 +322,53 @@ def doctor(
 def models_list(json_out: JsonFlag = False) -> None:
     """Show the model/transport combinations the router may consider."""
     project = _project()
-    models = [ModelOut.from_descriptor(m) for m in project.registry.models()]
+    limits = _active_limits(project)
+    models = [ModelOut.from_descriptor(m, limits.get(m.adapter)) for m in project.registry.models()]
 
     def show(items: list[ModelOut]) -> None:
         for m in items:
             status = "available" if m.available else f"unavailable ({m.unavailable_reason})"
+            if m.available and m.provider_limit:
+                status = f"available but {m.provider_limit}"
             billing = "metered" if m.metered else "subscription/unmetered"
             typer.echo(
                 f"{m.candidate:<28} {m.provider:<10} {m.transport:<4} tier={m.reasoning_tier:<9} {billing:<22} {status}"
             )
 
     emit(models, json_out, show)
+
+
+def _active_limits(project: Project) -> dict[str, str]:
+    """adapter -> human description of a provider cooldown still in force."""
+    now = datetime.now(UTC).isoformat(timespec="milliseconds")
+    return {
+        h.adapter: f"{h.state.replace('_', ' ')} until {h.until}: {h.reason}"
+        for h in project.store.provider_health().values()
+        if h.until > now
+    }
+
+
+@providers_app.command("status")
+def providers_status(json_out: JsonFlag = False) -> None:
+    """Show provider cooldowns recorded after rate-limit or quota errors."""
+    project = _project()
+    health = sorted(project.store.provider_health().values(), key=lambda h: h.adapter)
+    if json_out:
+        typer.echo(json.dumps([h.__dict__ for h in health], indent=2))
+        return
+    if not health:
+        typer.echo("No provider limits recorded.")
+    for h in health:
+        typer.echo(f"{h.adapter}: {h.state} until {h.until} (hit {h.consecutive}x) - {h.reason}")
+
+
+@providers_app.command("reset")
+def providers_reset(adapter: str) -> None:
+    """Clear a recorded provider limit, for example after your plan's usage window resets."""
+    project = _project()
+    project.registry.get(adapter)  # unknown adapters are a usage error
+    cleared = project.store.clear_provider_health(adapter, actor="user", reason="cleared by user")
+    typer.echo(f"Cleared the limit on {adapter}." if cleared else f"No limit recorded for {adapter}.")
 
 
 @policy_app.command("validate")
