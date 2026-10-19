@@ -15,6 +15,7 @@ import yaml
 from saarathi.core.errors import ConfigError, EngineLocked
 from saarathi.core.policy import DEFAULT_POLICY_YAML, Policy, load_policy
 from saarathi.git.workspace import GitRepo, data_dir
+from saarathi.integrations.registry import SqliteIntegrationRegistry
 from saarathi.memory.store import ProjectMemory, init_layout
 from saarathi.providers.registry import ProviderRegistry
 from saarathi.security.redaction import Redactor
@@ -37,6 +38,14 @@ class Project:
     @property
     def meta(self) -> Path:
         return self.root / META
+
+    @property
+    def integrations(self) -> SqliteIntegrationRegistry:
+        return SqliteIntegrationRegistry(self.store)
+
+    @property
+    def workspace(self) -> str:
+        return self.policy.integrations.workspace
 
     @property
     def logs(self) -> Path:

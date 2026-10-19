@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,6 +21,7 @@ from saarathi.core.states import (
     check_run_transition,
     check_task_transition,
 )
+from saarathi.integrations.model import effect_of, mask_identity
 from saarathi.storage.db import connect
 
 EVENT_SCHEMA_VERSION = 1
@@ -142,6 +143,10 @@ class StateStore:
             raise
         finally:
             self._depth = 0
+
+    def query(self, sql: str, args: Sequence[Any] = ()) -> list[sqlite3.Row]:
+        """Read-only access for repositories that live next to the store (e.g. the integration registry)."""
+        return self._conn.execute(sql, tuple(args)).fetchall()
 
     def _seen(self, key: str | None) -> bool:
         if key is None:
@@ -352,6 +357,30 @@ class StateStore:
                     "INSERT INTO tasks (run_id, id, state, packet_json, updated_at) VALUES (?,?,?,?,?)",
                     (run_id, p.task_id, TaskState.PENDING, p.model_dump_json(), now),
                 )
+                for idx, req in enumerate(p.integrations):
+                    selector = req.account
+                    if selector and "@" in selector:
+                        selector = mask_identity(selector)
+                    conn.execute(
+                        "INSERT INTO task_requirement (run_id, task_id, idx, service, operation, effect,"
+                        " account_selector, tenant, resource, data_class, identity_sensitive, consent_required,"
+                        " share_fields_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            run_id,
+                            p.task_id,
+                            idx,
+                            req.service,
+                            req.operation,
+                            effect_of(req.operation),
+                            selector,
+                            req.tenant,
+                            req.resource,
+                            req.data_class,
+                            int(req.identity_sensitive),
+                            int(req.consent_required),
+                            json.dumps(req.share_fields),
+                        ),
+                    )
             self.append_event("tasks.created", {"ids": [p.task_id for p in packets]}, actor=actor, run_id=run_id)
 
     def get_task(self, run_id: str, task_id: str) -> TaskRecord:
@@ -610,6 +639,12 @@ class StateStore:
     def get_control(self, run_id: str, key: str) -> str | None:
         row = self._conn.execute("SELECT value FROM control WHERE run_id=? AND key=?", (run_id, key)).fetchone()
         return None if row is None else str(row[0])
+
+    def controls(self, run_id: str, prefix: str) -> dict[str, str]:
+        rows = self._conn.execute(
+            "SELECT key, value FROM control WHERE run_id=? AND substr(key, 1, ?) = ?", (run_id, len(prefix), prefix)
+        ).fetchall()
+        return {str(r[0]): str(r[1]) for r in rows}
 
     def pop_control(self, run_id: str, key: str) -> str | None:
         with self.transaction() as conn:

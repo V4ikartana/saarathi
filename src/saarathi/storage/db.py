@@ -100,6 +100,102 @@ MIGRATIONS: tuple[str, ...] = (
         PRIMARY KEY (run_id, key)
     );
     """,
+    # 2: integration and account registry (§12A, ADR-0008). Every record is scoped to a workspace.
+    # No secrets: authentication stays inside provider runtimes. Identities are stored as a
+    # workspace-salted digest plus a masked hint, never in plain text.
+    """
+    CREATE TABLE worker_instance (
+        workspace_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        adapter TEXT NOT NULL,
+        runtime TEXT NOT NULL,
+        profile TEXT,
+        lifecycle TEXT NOT NULL,
+        health TEXT NOT NULL DEFAULT 'unknown',
+        max_parallel INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, id)
+    );
+    CREATE UNIQUE INDEX worker_instance_active_adapter ON worker_instance(workspace_id, adapter)
+        WHERE lifecycle = 'active';
+    CREATE TABLE integration_account (
+        workspace_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        service TEXT NOT NULL,
+        tenant TEXT,
+        identity_hint TEXT,
+        identity_digest TEXT,
+        identity_status TEXT NOT NULL,
+        verification_method TEXT,
+        verified_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, id)
+    );
+    CREATE INDEX integration_account_service ON integration_account(workspace_id, service);
+    CREATE TABLE integration_connection (
+        workspace_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        worker_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        discovery_method TEXT NOT NULL,
+        provenance TEXT NOT NULL,
+        confidence TEXT NOT NULL,
+        verified_at TEXT,
+        expires_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, id),
+        FOREIGN KEY (workspace_id, account_id) REFERENCES integration_account(workspace_id, id),
+        FOREIGN KEY (workspace_id, worker_id) REFERENCES worker_instance(workspace_id, id)
+    );
+    CREATE TABLE integration_capability (
+        workspace_id TEXT NOT NULL,
+        connection_id TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        resource_scope TEXT NOT NULL DEFAULT '*',
+        permission_level TEXT NOT NULL,
+        evidence TEXT NOT NULL,
+        checked_at TEXT,
+        PRIMARY KEY (workspace_id, connection_id, operation, resource_scope),
+        FOREIGN KEY (workspace_id, connection_id) REFERENCES integration_connection(workspace_id, id)
+    );
+    CREATE TABLE account_alias (
+        workspace_id TEXT NOT NULL,
+        service TEXT NOT NULL,
+        alias TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, service, alias),
+        FOREIGN KEY (workspace_id, account_id) REFERENCES integration_account(workspace_id, id)
+    );
+    CREATE TABLE account_default (
+        workspace_id TEXT NOT NULL,
+        service TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        set_at TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, service),
+        FOREIGN KEY (workspace_id, account_id) REFERENCES integration_account(workspace_id, id)
+    );
+    CREATE TABLE task_requirement (
+        run_id TEXT NOT NULL REFERENCES runs(id),
+        task_id TEXT NOT NULL,
+        idx INTEGER NOT NULL,
+        service TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        effect TEXT NOT NULL,
+        account_selector TEXT,
+        tenant TEXT,
+        resource TEXT,
+        data_class TEXT NOT NULL,
+        identity_sensitive INTEGER NOT NULL,
+        consent_required INTEGER NOT NULL,
+        share_fields_json TEXT NOT NULL,
+        PRIMARY KEY (run_id, task_id, idx)
+    );
+    """,
 )
 
 

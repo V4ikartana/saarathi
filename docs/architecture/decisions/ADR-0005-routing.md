@@ -25,4 +25,4 @@ when that is explicitly configured. Otherwise it pauses.
 ## Consequences
 
 - Routing is a heuristic, not a quality claim. Learned routing is Phase 3.
-- Integration and account-aware filters (§12A) slot in as additional hard filters before scoring (Phase 2).
+- Integration and account-aware filters (§12A) are additional hard filters before scoring; see ADR-0008.

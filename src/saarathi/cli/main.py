@@ -13,11 +13,29 @@ from typing import Annotated, Any
 import typer
 
 from saarathi import __version__
-from saarathi.cli.output import DoctorOut, ModelOut, PolicyOut, StatusOut, TaskOut, emit
+from saarathi.cli.output import (
+    AccountOut,
+    AccountsOut,
+    CapabilityOut,
+    ConnectionOut,
+    DoctorOut,
+    IntegrationsOut,
+    ModelOut,
+    PolicyOut,
+    ScanEntryOut,
+    ScanOut,
+    StatusOut,
+    TaskOut,
+    VerifyOut,
+    emit,
+)
+from saarathi.core.contracts import RoutingDecision
 from saarathi.core.errors import ExitCode, SaarathiError
 from saarathi.core.policy import load_policy
 from saarathi.core.states import RunState
-from saarathi.orchestration.engine import Engine, render_plan
+from saarathi.integrations.discovery import discovery_for
+from saarathi.integrations.model import ConnectionStatus, Evidence, IntegrationSnapshot
+from saarathi.orchestration.engine import GRANT_PREFIX, SELECT_PREFIX, Engine, render_plan
 from saarathi.orchestration.project import META, Project
 from saarathi.providers.base import Invocation, InvocationMode
 from saarathi.providers.claude_cli import LIVE_UNVERIFIED_PREFIX
@@ -37,8 +55,15 @@ route_app = typer.Typer(help="Routing decisions.", no_args_is_help=True)
 app.add_typer(models_app, name="models")
 app.add_typer(policy_app, name="policy")
 app.add_typer(route_app, name="route")
+integrations_app = typer.Typer(
+    help="Integration and account registry: which worker may do what, on which account.", no_args_is_help=True
+)
+app.add_typer(integrations_app, name="integrations")
 
 JsonFlag = Annotated[bool, typer.Option("--json", help="Machine-readable output.")]
+WorkspaceOpt = Annotated[
+    str | None, typer.Option("--workspace", help="Workspace scope (default: integrations.workspace in the policy).")
+]
 NonInteractive = Annotated[
     bool, typer.Option("--non-interactive", help="Never prompt; pause where a person must decide.")
 ]
@@ -489,11 +514,48 @@ def report(run_id: Annotated[str | None, typer.Option("--run")] = None, json_out
     typer.echo(json.dumps(data, indent=2, default=str) if json_out else render_markdown(data))
 
 
+def _print_integration(d: RoutingDecision) -> None:
+    trace = d.integration
+    if trace is None:
+        return
+    typer.echo(f"  integration (workspace {trace.workspace}):")
+    for r in trace.requirements:
+        account = (
+            f"account '{r.account_label}' ({r.account}) via {r.resolved_by}" if r.account else "account unresolved"
+        )
+        identity = f", identity {r.identity_status}" if r.identity_status else ""
+        typer.echo(f"    [{r.index}] {r.service}/{r.operation} ({r.effect}) {account}{identity}")
+        for c in r.connections:
+            state = "eligible" if c.eligible else "rejected: " + "; ".join(c.reasons)
+            evidence = f" [{c.evidence}{' ' + c.checked_at if c.checked_at else ''}]" if c.evidence else ""
+            typer.echo(f"        {c.connection} on worker {c.worker} ({c.adapter}){evidence}: {state}")
+        if r.problem:
+            typer.echo(f"        problem: {r.problem}")
+    for choice in trace.account_choices:
+        typer.echo(
+            f"    choose for [{choice.requirement}]: {choice.account} ('{choice.label}', "
+            f"identity {choice.identity_status}) -> "
+            f"`saarathi integrations select {d.task_id} {choice.account} --requirement {choice.requirement}`"
+        )
+    for t in trace.transfers:
+        typer.echo(
+            f"    transfer {t.source_task} {t.service} {t.from_provider} -> {t.to_candidate} ({t.to_provider}): "
+            f"{t.mode}, fields {t.fields}, approved={'yes' if t.approved else 'no'}"
+        )
+    for a in trace.approvals_required:
+        typer.echo(f"    approval required: {a.key} - {a.detail}")
+        typer.echo(f"        grant with `saarathi integrations approve {d.task_id} '{a.key}'`")
+    for key in trace.approvals_granted:
+        typer.echo(f"    approval granted: {key}")
+    if trace.selected_connections:
+        typer.echo(f"    selected connection(s): {', '.join(trace.selected_connections)}")
+
+
 @route_app.command("explain")
 def route_explain(
     task_id: str, run_id: Annotated[str | None, typer.Option("--run")] = None, json_out: JsonFlag = False
 ) -> None:
-    """Explain every routing decision made for a task."""
+    """Explain every routing decision made for a task, including integration eligibility."""
     project = _project()
     decisions = project.store.decisions(_run_id(project, run_id), task_id)
     if json_out:
@@ -509,6 +571,321 @@ def route_explain(
             typer.echo(f"  busy: {b}")
         for r in d.rejected:
             typer.echo(f"  rejected {r.candidate}: {'; '.join(r.reasons)}")
+        _print_integration(d)
+
+
+# ====================================================================== integrations
+
+
+def _ws(project: Project, workspace: str | None) -> str:
+    return workspace or project.workspace
+
+
+def _connections_out(snap: IntegrationSnapshot) -> list[ConnectionOut]:
+    out = []
+    for c in snap.connections:
+        account = snap.accounts[c.account_id]
+        worker = snap.workers.get(c.worker_id)
+        out.append(
+            ConnectionOut(
+                id=c.id,
+                service=account.service,
+                account=account.id,
+                account_label=snap.label(account),
+                worker=c.worker_id,
+                adapter=worker.adapter if worker else None,
+                status=c.status,
+                discovery_method=c.discovery_method,
+                verified_at=c.verified_at,
+                expires_at=c.expires_at,
+                capabilities=[
+                    CapabilityOut(
+                        operation=cap.operation,
+                        effect=cap.permission_level,
+                        resource_scope=cap.resource_scope,
+                        evidence=cap.evidence,
+                        checked_at=cap.checked_at,
+                    )
+                    for cap in c.capabilities
+                ],
+            )
+        )
+    return out
+
+
+@integrations_app.command("list")
+def integrations_list(workspace: WorkspaceOpt = None, json_out: JsonFlag = False) -> None:
+    """Show known connections, their owning worker, operations and verification status. No secrets."""
+    project = _project()
+    ws = _ws(project, workspace)
+    out = IntegrationsOut(workspace=ws, connections=_connections_out(project.integrations.snapshot(ws)))
+
+    def show(o: IntegrationsOut) -> None:
+        if not o.connections:
+            typer.echo(f"No integrations registered in workspace '{o.workspace}'.")
+            typer.echo("Saarathi does not detect connections it cannot see; use `saarathi integrations register`.")
+        for c in o.connections:
+            typer.echo(
+                f"{c.id}  {c.service} account '{c.account_label}' ({c.account})  worker {c.worker} ({c.adapter})"
+            )
+            typer.echo(f"     status={c.status} discovery={c.discovery_method} verified_at={c.verified_at or 'never'}")
+            for cap in c.capabilities:
+                typer.echo(f"     {cap.operation:<20} {cap.effect:<8} {cap.evidence}")
+
+    emit(out, json_out, show)
+
+
+@integrations_app.command("accounts")
+def integrations_accounts(workspace: WorkspaceOpt = None, json_out: JsonFlag = False) -> None:
+    """List accounts with scoped aliases, masked identities, connection owners and identity status."""
+    project = _project()
+    ws = _ws(project, workspace)
+    snap = project.integrations.snapshot(ws)
+    accounts = [
+        AccountOut(
+            id=a.id,
+            service=a.service,
+            aliases=snap.aliases_of(a.id),
+            identity=a.identity_hint,
+            identity_status=a.identity_status,
+            tenant=a.tenant,
+            is_default=snap.defaults.get(a.service) == a.id,
+            connections=[f"{c.id}@{c.worker_id}" for c in snap.connections if c.account_id == a.id],
+        )
+        for a in sorted(snap.accounts.values(), key=lambda a: (a.service, a.id))
+    ]
+
+    def show(o: AccountsOut) -> None:
+        if not o.accounts:
+            typer.echo(f"No accounts registered in workspace '{o.workspace}'.")
+        for a in o.accounts:
+            default = " [default]" if a.is_default else ""
+            aliases = ",".join(a.aliases) or "-"
+            typer.echo(
+                f"{a.id}  {a.service}{default}  aliases={aliases}  identity={a.identity or '-'} ({a.identity_status})"
+            )
+            typer.echo(f"     tenant={a.tenant or '-'} connections={', '.join(a.connections) or '-'}")
+
+    emit(AccountsOut(workspace=ws, accounts=accounts), json_out, show)
+
+
+@integrations_app.command("scan")
+def integrations_scan(workspace: WorkspaceOpt = None, json_out: JsonFlag = False) -> None:
+    """Refresh integration inventory through documented provider interfaces only."""
+    project = _project()
+    ws = _ws(project, workspace)
+    snap = project.integrations.snapshot(ws)
+    entries = []
+    for name, adapter in project.registry.adapters.items():
+        report = discovery_for(adapter.type_name).scan(name)
+        workers = {w.id for w in snap.workers.values() if w.adapter == name}
+        entries.append(
+            ScanEntryOut(
+                adapter=name,
+                status=report.status,
+                detail=report.detail,
+                notes=list(report.notes),
+                registered_connections=[c.id for c in snap.connections if c.worker_id in workers],
+            )
+        )
+
+    def show(o: ScanOut) -> None:
+        for e in o.adapters:
+            typer.echo(f"{e.adapter}: {e.status} - {e.detail}")
+            for n in e.notes:
+                typer.echo(f"     note: {n}")
+            registered = ", ".join(e.registered_connections) or "none"
+            typer.echo(f"     registered connections (not detected): {registered}")
+
+    emit(ScanOut(workspace=ws, adapters=entries), json_out, show)
+
+
+@integrations_app.command("register")
+def integrations_register(
+    adapter: Annotated[str, typer.Option("--adapter", help="Provider adapter that owns the connection.")],
+    service: Annotated[str, typer.Option("--service", help="Canonical service id, e.g. gmail.")],
+    operation: Annotated[list[str], typer.Option("--operation", "-o", help="Permitted operation (repeatable).")],
+    account: Annotated[
+        str | None, typer.Option("--account", help="Existing account id, or the id for a new one.")
+    ] = None,
+    identity: Annotated[
+        str | None, typer.Option("--identity", help="Account identity you declare (stored masked and hashed).")
+    ] = None,
+    alias: Annotated[str | None, typer.Option("--alias", help="Workspace-scoped alias for the account.")] = None,
+    tenant: Annotated[str | None, typer.Option("--tenant", help="Tenant boundary of the account.")] = None,
+    worker: Annotated[str | None, typer.Option("--worker", help="Worker id (default: the adapter name).")] = None,
+    connection_id: Annotated[str | None, typer.Option("--connection-id")] = None,
+    workspace: WorkspaceOpt = None,
+    json_out: JsonFlag = False,
+) -> None:
+    """Declare a connection by hand. It stays unverified until `integrations verify` confirms it."""
+    project = _project()
+    ws = _ws(project, workspace)
+    try:
+        if adapter not in project.registry.adapters:
+            raise SaarathiError(f"adapter '{adapter}' is not configured", hint="see providers in policies.yaml")
+        reg = project.integrations
+        runtime = project.registry.adapters[adapter].type_name
+        w = reg.register_worker(ws, worker_id=worker or adapter, adapter=adapter, runtime=runtime)
+        acct = reg.register_account(ws, service=service, account_id=account, identity=identity, tenant=tenant)
+        if alias:
+            reg.set_alias(ws, acct.id, alias)
+        conn = reg.register_connection(
+            ws, account_id=acct.id, worker_id=w.id, operations=operation, connection_id=connection_id
+        )
+    except SaarathiError as exc:
+        _fail(exc)
+        raise
+    snap = reg.snapshot(ws)
+    out = next(c for c in _connections_out(snap) if c.id == conn.id)
+    emit(
+        out,
+        json_out,
+        lambda c: typer.echo(
+            f"Registered {c.id}: {c.service} account '{c.account_label}' ({c.account}) on worker {c.worker}.\n"
+            f"It is declared, not verified. Confirm it with `saarathi integrations verify {c.id} --confirm`."
+        ),
+    )
+
+
+@integrations_app.command("verify")
+def integrations_verify(
+    connection_id: str,
+    confirm: Annotated[
+        bool,
+        typer.Option("--confirm", help="Record that you confirmed this connection works (not provider verification)."),
+    ] = False,
+    workspace: WorkspaceOpt = None,
+    json_out: JsonFlag = False,
+) -> None:
+    """Run a supported safe probe, or record explicit user confirmation, or report that neither is available."""
+    project = _project()
+    ws = _ws(project, workspace)
+    reg = project.integrations
+    snap = reg.snapshot(ws)
+    conn = next((c for c in snap.connections if c.id == connection_id), None)
+    if conn is None:
+        _fail(SaarathiError(f"connection '{connection_id}' not found in workspace '{ws}'"))
+        raise AssertionError
+    worker = snap.workers.get(conn.worker_id)
+    adapter = project.registry.adapters.get(worker.adapter) if worker else None
+    if confirm:
+        reg.record_verification(ws, connection_id, evidence=Evidence.USER_CONFIRMED, method="user_confirmation")
+        out = VerifyOut(
+            connection=connection_id,
+            status="user_confirmed",
+            evidence=Evidence.USER_CONFIRMED,
+            detail="recorded your confirmation; this is not provider verification",
+        )
+    else:
+        discovery = discovery_for(adapter.type_name if adapter else "unknown")
+        outcomes = [discovery.probe(conn, cap.operation) for cap in conn.capabilities]
+        if outcomes and all(o.status == "verified" for o in outcomes):
+            reg.record_verification(ws, connection_id, evidence=Evidence.PROBED, method="probe")
+            out = VerifyOut(
+                connection=connection_id, status="verified", evidence=Evidence.PROBED, detail="probe passed"
+            )
+        else:
+            status = "failed" if any(o.status == "failed" for o in outcomes) else "unavailable"
+            evidence = conn.capabilities[0].evidence if conn.capabilities else Evidence.DECLARED
+            detail = "; ".join(o.detail for o in outcomes) or "no operations to probe"
+            out = VerifyOut(connection=connection_id, status=status, evidence=evidence, detail=detail)
+    emit(out, json_out, lambda o: typer.echo(f"{o.connection}: {o.status} ({o.evidence}) - {o.detail}"))
+    if out.status in ("failed", "unavailable"):
+        raise typer.Exit(ExitCode.AWAITING_INPUT)
+
+
+@integrations_app.command("revoke")
+def integrations_revoke(
+    connection_id: str,
+    stale: Annotated[
+        bool, typer.Option("--stale", help="Mark stale (needs re-verification) instead of revoked.")
+    ] = False,
+    workspace: WorkspaceOpt = None,
+) -> None:
+    """Invalidate a connection. Tasks that need it pause; Saarathi never reroutes to another account."""
+    project = _project()
+    status = ConnectionStatus.STALE if stale else ConnectionStatus.REVOKED
+    try:
+        project.integrations.set_connection_status(_ws(project, workspace), connection_id, status, reason="user")
+    except SaarathiError as exc:
+        _fail(exc)
+    typer.echo(f"{connection_id} is now {status}.")
+
+
+@integrations_app.command("alias")
+def integrations_alias(account_id: str, alias: str, workspace: WorkspaceOpt = None) -> None:
+    """Set a workspace-scoped alias (e.g. personal, business) for an account."""
+    project = _project()
+    try:
+        project.integrations.set_alias(_ws(project, workspace), account_id, alias)
+    except SaarathiError as exc:
+        _fail(exc)
+    typer.echo(f"Alias '{alias}' -> {account_id} in workspace '{_ws(project, workspace)}'.")
+
+
+@integrations_app.command("default")
+def integrations_default(service: str, account_id: str, workspace: WorkspaceOpt = None) -> None:
+    """Set the scoped default account for a service, or clear it with `none`."""
+    project = _project()
+    target = None if account_id.lower() == "none" else account_id
+    try:
+        project.integrations.set_default(_ws(project, workspace), service, target)
+    except SaarathiError as exc:
+        _fail(exc)
+    typer.echo(f"Default {service} account in workspace '{_ws(project, workspace)}': {target or 'none'}.")
+
+
+def _latest_decision(project: Project, run_id: str, task_id: str) -> RoutingDecision:
+    decisions = project.store.decisions(run_id, task_id)
+    if not decisions:
+        raise SaarathiError(f"no routing decisions recorded for {task_id}")
+    return decisions[-1]
+
+
+@integrations_app.command("approve")
+def integrations_approve(task_id: str, key: str, run_id: Annotated[str | None, typer.Option("--run")] = None) -> None:
+    """Grant one approval the router asked for (see `saarathi route explain <task>`), for this run only."""
+    project = _project()
+    try:
+        rid = _run_id(project, run_id)
+        trace = _latest_decision(project, rid, task_id).integration
+        pending = {a.key for a in trace.approvals_required} if trace else set()
+        if key not in pending:
+            raise SaarathiError(
+                f"'{key}' is not an approval pending for {task_id}",
+                hint=f"pending: {', '.join(sorted(pending)) or 'none'}",
+            )
+        project.store.set_control(rid, f"{GRANT_PREFIX}{key}", "user", actor="user")
+    except SaarathiError as exc:
+        _fail(exc)
+    typer.echo(f"Approved {key}. Continue with `saarathi resume`.")
+
+
+@integrations_app.command("select")
+def integrations_select(
+    task_id: str,
+    account_id: str,
+    requirement: Annotated[int, typer.Option("--requirement", help="Requirement index in the task.")] = 0,
+    run_id: Annotated[str | None, typer.Option("--run")] = None,
+) -> None:
+    """Choose the account for an ambiguous requirement of one task, in this run only."""
+    project = _project()
+    try:
+        rid = _run_id(project, run_id)
+        task = project.store.get_task(rid, task_id)
+        if not 0 <= requirement < len(task.packet.integrations):
+            raise SaarathiError(f"{task_id} has no integration requirement {requirement}")
+        req = task.packet.integrations[requirement]
+        if req.account is not None:
+            raise SaarathiError(f"requirement {requirement} names its account explicitly; it cannot be changed")
+        account = project.integrations.snapshot(project.workspace).accounts.get(account_id)
+        if account is None or account.service != req.service:
+            raise SaarathiError(f"'{account_id}' is not a {req.service} account in workspace '{project.workspace}'")
+        project.store.set_control(rid, f"{SELECT_PREFIX}{task_id}:{requirement}", account_id, actor="user")
+    except SaarathiError as exc:
+        _fail(exc)
+    typer.echo(f"{task_id} requirement {requirement} will use {account_id}. Continue with `saarathi resume`.")
 
 
 def main() -> None:  # pragma: no cover

@@ -86,3 +86,70 @@ def emit[T](value: T, json_out: bool, human: Callable[[T], None]) -> None:
         )
     else:
         human(value)
+
+
+class CapabilityOut(BaseModel):
+    operation: str
+    effect: str
+    resource_scope: str
+    evidence: str
+    checked_at: str | None
+
+
+class ConnectionOut(BaseModel):
+    id: str
+    service: str
+    account: str
+    account_label: str
+    worker: str
+    adapter: str | None
+    status: str
+    discovery_method: str
+    verified_at: str | None
+    expires_at: str | None
+    capabilities: list[CapabilityOut]
+
+
+class IntegrationsOut(BaseModel):
+    schema_version: int = 1
+    workspace: str
+    connections: list[ConnectionOut]
+
+
+class AccountOut(BaseModel):
+    id: str
+    service: str
+    aliases: list[str]
+    identity: str | None  # masked; the full identifier is never stored
+    identity_status: str
+    tenant: str | None
+    is_default: bool
+    connections: list[str]
+
+
+class AccountsOut(BaseModel):
+    schema_version: int = 1
+    workspace: str
+    accounts: list[AccountOut]
+
+
+class ScanEntryOut(BaseModel):
+    adapter: str
+    status: str
+    detail: str
+    notes: list[str]
+    registered_connections: list[str]
+
+
+class ScanOut(BaseModel):
+    schema_version: int = 1
+    workspace: str
+    adapters: list[ScanEntryOut]
+
+
+class VerifyOut(BaseModel):
+    schema_version: int = 1
+    connection: str
+    status: str  # verified | user_confirmed | unavailable | failed
+    evidence: str
+    detail: str

@@ -34,6 +34,7 @@ from saarathi.core.contracts import (
 from saarathi.core.errors import SaarathiError
 from saarathi.core.states import RUN_TERMINAL, TASK_IN_FLIGHT, RunState, TaskState
 from saarathi.git.workspace import scope_violations
+from saarathi.integrations.model import DataSource, IntegrationSnapshot
 from saarathi.orchestration import prompts
 from saarathi.orchestration.lead import LeadAgent, LeadError
 from saarathi.orchestration.project import Project
@@ -47,6 +48,8 @@ from saarathi.verification.verifier import all_passed, run_verification
 ACTOR = "engine"
 LEASE_TTL = timedelta(minutes=2)
 HEARTBEAT_SECONDS = 20.0
+GRANT_PREFIX = "grant:"  # control key prefix for integration approvals granted in a run
+SELECT_PREFIX = "select:"  # control key prefix for per-task account selections
 RATE_LIMIT_BACKOFF_SECONDS = (30.0, 120.0, 300.0)
 WORKER_CAPABILITIES = ("code_generation", "workspace_write", "structured_output")
 
@@ -271,6 +274,7 @@ class Engine:
                 max_attempts=self.p.policy.execution.max_attempts,
                 verification_commands=task.verification_commands,
                 permissions=TaskPermissions(network=self.p.policy.permissions.allow_network, secrets=False),
+                integrations=task.integrations,
             )
             self.p.memory.write_new_or_same(f"tasks/{run_id}/{task.id}.json", packet.model_dump_json(indent=2))
             packets.append(packet)
@@ -386,6 +390,64 @@ class Engine:
             load.providers_in_flight[meta.provider] = load.providers_in_flight.get(meta.provider, 0) + 1
         return load
 
+    def _routing_request(self, run_id: str, task: TaskRecord) -> RoutingRequest:
+        failed_before = frozenset(
+            f"{a.adapter}:{a.model}" for a in self.p.store.attempts(run_id, task.id) if a.outcome == "failed"
+        )
+        grants = frozenset(k[len(GRANT_PREFIX) :] for k in self.p.store.controls(run_id, GRANT_PREFIX))
+        prefix = f"{SELECT_PREFIX}{task.id}:"
+        selections = tuple(sorted((int(k[len(prefix) :]), v) for k, v in self.p.store.controls(run_id, prefix).items()))
+        return RoutingRequest(
+            task_id=task.id,
+            required_capabilities=tuple(task.packet.required_capabilities),
+            complexity=Complexity(task.packet.complexity),
+            previously_failed=failed_before,
+            integrations=tuple(task.packet.integrations),
+            data_sources=self._data_sources(run_id, task),
+            approvals=grants,
+            selections=selections,
+        )
+
+    def _data_sources(self, run_id: str, task: TaskRecord) -> tuple[DataSource, ...]:
+        """Integration data this task may receive: every transitive dependency that read an account.
+
+        Conservative: any dependency's output is assumed to reach the task.
+        """
+        tasks = {t.id: t for t in self.p.store.tasks(run_id)}
+        sources: list[DataSource] = []
+        seen: set[str] = set()
+        stack = list(task.packet.dependencies)
+        while stack:
+            dep_id = stack.pop()
+            if dep_id in seen or dep_id not in tasks:
+                continue
+            seen.add(dep_id)
+            dep = tasks[dep_id]
+            stack.extend(dep.packet.dependencies)
+            if not dep.packet.integrations:
+                continue
+            provider = str((dep.result or {}).get("provider") or "unknown")
+            routed = [d for d in self.p.store.decisions(run_id, dep_id) if d.chosen and d.integration]
+            trace = routed[-1].integration if routed else None
+            for idx, req in enumerate(dep.packet.integrations):
+                resolved = trace.requirements[idx] if trace and idx < len(trace.requirements) else None
+                sources.append(
+                    DataSource(
+                        task_id=dep_id,
+                        service=req.service,
+                        account_id=(resolved.account if resolved else None) or "unresolved",
+                        tenant=resolved.tenant if resolved else None,
+                        provider=provider,
+                        fields=tuple(req.share_fields),
+                    )
+                )
+        return tuple(sorted(sources, key=lambda s: (s.task_id, s.service, s.account_id)))
+
+    def _snapshot_for(self, req: RoutingRequest) -> IntegrationSnapshot | None:
+        if not req.integrations and not req.data_sources:
+            return None
+        return self.p.integrations.snapshot(self.p.workspace)
+
     def _dispatch(self, run_id: str) -> None:
         models = self.p.registry.models()
         for task in self.p.store.tasks(run_id):
@@ -393,16 +455,8 @@ class Engine:
                 return
             if task.state is not TaskState.READY:
                 continue
-            failed_before = frozenset(
-                f"{a.adapter}:{a.model}" for a in self.p.store.attempts(run_id, task.id) if a.outcome == "failed"
-            )
-            req = RoutingRequest(
-                task_id=task.id,
-                required_capabilities=tuple(task.packet.required_capabilities),
-                complexity=Complexity(task.packet.complexity),
-                previously_failed=failed_before,
-            )
-            decision = route(req, models, self.p.policy, self._load())
+            req = self._routing_request(run_id, task)
+            decision = route(req, models, self.p.policy, self._load(), self._snapshot_for(req))
             if decision.chosen is None and decision.busy:
                 continue  # wait for capacity; not recorded to keep the log readable
             self.p.store.save_decision(run_id, decision, actor="router")
@@ -422,6 +476,44 @@ class Engine:
             )
             model = next(m for m in models if m.candidate_id == decision.chosen)
             self._spawn(run_id, self.p.store.get_task(run_id, task.id), model, decision_id=decision.decision_id)
+
+    def _integration_recheck(self, run_id: str, task: TaskRecord, model: ModelDescriptor) -> bool:
+        """Re-evaluate integration filters immediately before a worker is invoked (§12A discovery rule 3).
+
+        On failure the task is blocked; it is never rerouted to another account or worker here.
+        """
+        planned = self.p.store.decisions(run_id, task.id)[-1]
+        req = self._routing_request(run_id, task)
+        fresh = route(req, [model], self.p.policy, None, self._snapshot_for(req))
+        same = (
+            fresh.chosen == model.candidate_id
+            and fresh.integration is not None
+            and planned.integration is not None
+            and fresh.integration.selected_connections == planned.integration.selected_connections
+        )
+        if same:
+            return True
+        why = fresh.reason if fresh.chosen is None else "the selected connection changed"
+        reason = f"integration recheck before dispatch failed: {why}"
+        fresh = fresh.model_copy(update={"chosen": None, "reason": reason})
+        with self.p.store.transaction():
+            self.p.store.save_decision(run_id, fresh, actor="router")
+            self.p.store.transition_task(run_id, task.id, TaskState.READY, actor=ACTOR, reason="integration recheck")
+            self.p.store.transition_task(run_id, task.id, TaskState.BLOCKED, actor="router", blocked_reason=reason)
+        return False
+
+    def _consume_side_effect_approvals(self, run_id: str, task_id: str) -> None:
+        """Side-effect approvals are single-use: a retry, recovery or resume needs a fresh approval."""
+        prefix = f"{GRANT_PREFIX}side_effect:{task_id}:"
+        for key in self.p.store.controls(run_id, prefix):
+            self.p.store.pop_control(run_id, key)
+            self.p.store.append_event(
+                "integration.approval_consumed",
+                {"key": key[len(GRANT_PREFIX) :]},
+                actor=ACTOR,
+                run_id=run_id,
+                task_id=task_id,
+            )
 
     def _spawn(self, run_id: str, task: TaskRecord, model: ModelDescriptor | None, decision_id: str = "") -> None:
         if model is None:  # verification-only recovery of an existing attempt
@@ -454,6 +546,8 @@ class Engine:
         run = store.get_run(run_id)
         assert run.base_commit
         base = run.base_commit
+        if task.packet.integrations and not self._integration_recheck(run_id, task, model):
+            return
         path, branch = self._worktree(run_id, task.id)
         git.ensure_worktree(path, branch, base)
         store.set_task_workspace(run_id, task.id, branch=branch, worktree=str(path))
@@ -467,6 +561,7 @@ class Engine:
         attempt = store.start_attempt(
             run_id, task.id, decision=decision, base_commit=base, feedback=feedback, actor=ACTOR
         )
+        self._consume_side_effect_approvals(run_id, task.id)
         store.transition_task(
             run_id,
             task.id,
@@ -839,7 +934,7 @@ class Engine:
         self.io.info(f"Run paused: {reason}")
 
     def _checkpoint(self, run_id: str, kind: str, headline: str, items: list[str]) -> None:
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")  # microseconds: two pauses can share a second
         body = (
             f"# Checkpoint: {kind}\n\nRun: {run_id}\nTime: {utcnow()}\n\n{headline}\n\n"
             + "\n".join(f"- {i}" for i in items)

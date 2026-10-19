@@ -99,6 +99,31 @@ class ExecutionConfig(Strict):
     ignored_artifacts: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_ARTIFACTS))
 
 
+class TransferMode(StrEnum):
+    DENY = "deny"
+    REQUIRE_APPROVAL = "require_approval"
+    ALLOW = "allow"
+
+
+class IntegrationPolicy(Strict):
+    """Rules for integration-aware routing (§12A, ADR-0008). Defaults fail closed."""
+
+    # Accounts, aliases, defaults and connections are read only from this workspace.
+    workspace: str = Field(default="default", pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    # Only discovered, probed or user-confirmed capabilities count. False also admits declared ones.
+    require_verified_integration: bool = True
+    # A user-declared account identity is not provider verification.
+    user_declared_identity: TransferMode = TransferMode.REQUIRE_APPROVAL
+    cross_provider_data_transfer: TransferMode = TransferMode.REQUIRE_APPROVAL
+    # Result fields that may cross a provider boundary when a transfer is allowed or approved.
+    shareable_fields: list[str] = Field(default_factory=list)
+    # Tenants whose data never crosses a provider boundary, whatever the transfer mode.
+    no_transfer_tenants: list[str] = Field(default_factory=list)
+    # Sending, deleting, sharing or publishing. "allow" is deliberately not offered.
+    external_side_effects: Literal["deny", "require_approval"] = "require_approval"
+    max_verification_age_hours: int = Field(default=168, ge=1)
+
+
 class DeclaredModel(Strict):
     id: str
     reasoning_tier: ReasoningTier = ReasoningTier.UNKNOWN
@@ -125,6 +150,7 @@ class Policy(Strict):
     billing: BillingConfig = Field(default_factory=BillingConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    integrations: IntegrationPolicy = Field(default_factory=IntegrationPolicy)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -208,6 +234,14 @@ execution:
   env_passthrough: []         # extra environment variable names workers may see
   # ignored_artifacts: build outputs never committed or counted as changes
   # (default: __pycache__, *.pyc, .pytest_cache, .mypy_cache, .ruff_cache, node_modules, .DS_Store)
+
+integrations:
+  workspace: default          # accounts, aliases and defaults are scoped to this workspace
+  require_verified_integration: true
+  user_declared_identity: require_approval    # deny | require_approval | allow
+  cross_provider_data_transfer: require_approval
+  shareable_fields: []        # result fields that may cross a provider boundary
+  external_side_effects: require_approval     # mail.send, *.delete, *.share ... (deny | require_approval)
 
 providers:
   claude-code:

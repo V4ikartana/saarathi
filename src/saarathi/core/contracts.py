@@ -94,6 +94,37 @@ class ModelDescriptor(Strict):
         return f"{self.adapter}:{self.id}"
 
 
+# --------------------------------------------------------------------------- integrations (§12A)
+
+_SELECTOR_FORBIDDEN = re.compile(r"[*?\[\],\s]")
+
+
+class IntegrationRequirement(Strict):
+    """One operation a task needs on one connected account. Resolved by the router, never by a model.
+
+    ``account`` selects exactly one account: its id, a workspace-scoped alias or a provider identity.
+    ``None`` means "the scoped default, or ask". Several accounts mean several tasks.
+    """
+
+    service: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]*(\.[a-z0-9][a-z0-9_-]*)*$", max_length=80)
+    operation: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$", max_length=80)
+    account: str | None = Field(default=None, max_length=200)
+    tenant: str | None = None
+    resource: str | None = None
+    data_class: str = "internal"
+    identity_sensitive: bool = True
+    consent_required: bool = False
+    # Fields of this task's result that may be passed on to later tasks (subject to transfer policy).
+    share_fields: list[str] = Field(default_factory=list)
+
+    @field_validator("account")
+    @classmethod
+    def _one_account(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or _SELECTOR_FORBIDDEN.search(value)):
+            raise ValueError("account must name exactly one account (no wildcards, lists or spaces)")
+        return value
+
+
 # --------------------------------------------------------------------------- planning
 
 
@@ -134,6 +165,7 @@ class PlannedTask(Strict):
     required_capabilities: list[str]
     complexity: Complexity
     risk: Risk
+    integrations: list[IntegrationRequirement] = Field(default_factory=list, max_length=8)
 
     @field_validator("allowed_paths")
     @classmethod
@@ -221,6 +253,7 @@ class TaskPacket(Strict):
     max_attempts: int = Field(ge=1, le=5)
     verification_commands: list[str]
     permissions: TaskPermissions = Field(default_factory=TaskPermissions)
+    integrations: list[IntegrationRequirement] = Field(default_factory=list)
 
 
 class WorkerReport(Strict):
@@ -286,6 +319,68 @@ class RejectedCandidate(Strict):
     reasons: list[str]
 
 
+class ConnectionCheck(Strict):
+    connection: str
+    worker: str
+    adapter: str
+    eligible: bool
+    evidence: str | None = None
+    checked_at: str | None = None
+    reasons: list[str] = Field(default_factory=list)
+
+
+class RequirementTrace(Strict):
+    index: int
+    service: str
+    operation: str
+    effect: str
+    account: str | None = None  # resolved opaque account id
+    account_label: str | None = None  # alias or masked identity, never a raw identifier
+    tenant: str | None = None
+    resolved_by: str | None = None  # selection | id | alias | identity | default | only_account
+    identity_status: str | None = None
+    connections: list[ConnectionCheck] = Field(default_factory=list)
+    problem: str | None = None
+
+
+class ApprovalNeed(Strict):
+    key: str
+    kind: Literal["side_effect", "identity", "data_transfer"]
+    detail: str
+
+
+class AccountOption(Strict):
+    requirement: int
+    account: str
+    label: str
+    identity_status: str
+
+
+class TransferCheck(Strict):
+    source_task: str
+    service: str
+    account: str
+    from_provider: str
+    to_candidate: str
+    to_provider: str
+    mode: Literal["same_provider", "allow", "require_approval", "deny", "tenant_denied"]
+    fields: list[str]
+    approved: bool
+
+
+class IntegrationTrace(Strict):
+    """Why integration filters admitted or rejected workers. Part of the persisted routing decision."""
+
+    workspace: str
+    requirements: list[RequirementTrace] = Field(default_factory=list)
+    candidate_connections: dict[str, list[str]] = Field(default_factory=dict)
+    selected_connections: list[str] = Field(default_factory=list)
+    approvals_required: list[ApprovalNeed] = Field(default_factory=list)
+    approvals_granted: list[str] = Field(default_factory=list)
+    account_choices: list[AccountOption] = Field(default_factory=list)
+    transfers: list[TransferCheck] = Field(default_factory=list)
+
+
 class RoutingDecision(Strict):
     decision_id: str
     task_id: str
@@ -300,6 +395,8 @@ class RoutingDecision(Strict):
     busy: list[str] = Field(default_factory=list)
     rejected: list[RejectedCandidate] = Field(default_factory=list)
     estimated_cost_usd: float | None = None
+    awaiting: Literal["account_selection", "approval"] | None = None
+    integration: IntegrationTrace | None = None
 
 
 def slugify(text: str, max_len: int = 48) -> str:

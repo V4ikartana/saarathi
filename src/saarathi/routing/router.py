@@ -1,19 +1,28 @@
-"""Two-stage routing: deterministic hard filters, then an explainable weighted score (ADR-0005)."""
+"""Two-stage routing: deterministic hard filters, then an explainable weighted score (ADR-0005).
+
+Integration requirements (ADR-0008) add hard filters: the account is resolved and every candidate must
+reach it through an authorized connection before any candidate is scored.
+"""
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from saarathi.core.contracts import (
+    ApprovalNeed,
     Complexity,
+    IntegrationRequirement,
     ModelDescriptor,
     ReasoningTier,
     RejectedCandidate,
     RoutingDecision,
 )
 from saarathi.core.policy import Policy
+from saarathi.integrations.matcher import Awaiting, IntegrationMatch, IntegrationRequirementMatcher
+from saarathi.integrations.model import DataSource, IntegrationSnapshot
 
 _TIER_RANK = {ReasoningTier.ECONOMY: 1, ReasoningTier.BALANCED: 2, ReasoningTier.FRONTIER: 3}
 _DESIRED_RANK = {Complexity.ROUTINE: 1, Complexity.STANDARD: 2, Complexity.COMPLEX: 3}
@@ -28,6 +37,11 @@ class RoutingRequest:
     complexity: Complexity
     data_class: str = "internal"
     previously_failed: frozenset[str] = frozenset()
+    integrations: tuple[IntegrationRequirement, ...] = ()
+    data_sources: tuple[DataSource, ...] = ()  # integration data this task would receive
+    approvals: frozenset[str] = frozenset()  # approval keys granted for this run
+    selections: tuple[tuple[int, str], ...] = ()  # (requirement index, account id) chosen by the user
+    now: datetime | None = None
 
 
 @dataclass
@@ -86,19 +100,47 @@ def score(model: ModelDescriptor, req: RoutingRequest, policy: Policy, load: Run
     return {k: round(v, 4) for k, v in terms.items()}
 
 
+def _match_integrations(
+    req: RoutingRequest, policy: Policy, snapshot: IntegrationSnapshot | None
+) -> IntegrationMatch | None:
+    if not req.integrations and not req.data_sources:
+        return None
+    matcher = IntegrationRequirementMatcher(policy.integrations, now=req.now)
+    return matcher.match(
+        req.task_id,
+        req.integrations,
+        req.data_sources,
+        snapshot or IntegrationSnapshot(workspace=policy.integrations.workspace),
+        approvals=req.approvals,
+        selections=dict(req.selections),
+    )
+
+
 def route(
     req: RoutingRequest,
     candidates: Iterable[ModelDescriptor],
     policy: Policy,
     load: RuntimeLoad | None = None,
+    integrations: IntegrationSnapshot | None = None,
 ) -> RoutingDecision:
     load = load or RuntimeLoad()
     decision_id = f"rd-{uuid.uuid4().hex[:12]}"
+    match = _match_integrations(req, policy, integrations)
     rejected: list[RejectedCandidate] = []
     busy: list[str] = []
+    pending: list[ApprovalNeed] = []
     scored: list[tuple[float, str, ModelDescriptor, dict[str, float]]] = []
+    connections: dict[str, list[str]] = {}
     for model in candidates:
         reasons = hard_filter(model, req, policy)
+        if match is not None:
+            check = match.check_candidate(model)
+            reasons += check.reasons
+            if not reasons and check.pending:
+                pending.extend(p for p in check.pending if p not in pending)
+                reasons = [f"awaiting approval '{p.key}': {p.detail}" for p in check.pending]
+            if not reasons:
+                connections[model.candidate_id] = check.connections
         if reasons:
             rejected.append(RejectedCandidate(candidate=model.candidate_id, reasons=reasons))
             continue
@@ -108,24 +150,39 @@ def route(
         breakdown = score(model, req, policy, load)
         scored.append((breakdown["total"], model.candidate_id, model, breakdown))
 
-    if not scored:
-        reason = (
-            "all eligible candidates are at capacity; task waits"
-            if busy
-            else "no candidate satisfies the hard filters; task cannot run until policy or providers change"
-        )
+    trace = None
+    if match is not None:
+        trace = match.trace
+        trace.candidate_connections = connections
+        trace.approvals_required += [p for p in pending if p not in trace.approvals_required]
+
+    def blocked(reason: str, awaiting: Awaiting | None = None, *, waiting: list[str] | None = None) -> RoutingDecision:
         return RoutingDecision(
             decision_id=decision_id,
             task_id=req.task_id,
             chosen=None,
             reason=reason,
-            busy=busy,
+            busy=waiting or [],
             rejected=rejected,
+            awaiting=awaiting,
+            integration=trace,
         )
+
+    if match is not None and match.blocked:  # task-level: no candidate may run, busy or not
+        return blocked(match.blocked, match.awaiting)
+    if not scored:
+        if busy:
+            return blocked("all eligible candidates are at capacity; task waits", waiting=busy)
+        if pending:
+            keys = "; ".join(f"{p.key} ({p.detail})" for p in pending)
+            return blocked(f"awaiting approval: {keys}", "approval")
+        return blocked("no candidate satisfies the hard filters; task cannot run until policy or providers change")
 
     scored.sort(key=lambda item: (-item[0], item[1]))
     total, cid, model, breakdown = scored[0]
     terms = ", ".join(f"{k}={v}" for k, v in breakdown.items() if k != "total")
+    if trace is not None:
+        trace.selected_connections = connections.get(cid, [])
     return RoutingDecision(
         decision_id=decision_id,
         task_id=req.task_id,
@@ -140,6 +197,7 @@ def route(
         busy=busy,
         rejected=rejected,
         estimated_cost_usd=0.0 if not model.pricing.metered else None,
+        integration=trace,
     )
 
 
