@@ -9,11 +9,15 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 - Phase 0: feasibility report, provider compatibility matrix, ADR-0001 to ADR-0007, risk register, backlog.
 - Deterministic control plane: run and task state machines, SQLite store with an atomic event log and
   idempotency keys, crash-safe engine lock and orphan reconciliation.
-- Provider adapters: Codex CLI (verified live on 0.162.0-alpha.2), Claude Code (documented, unverified live),
+- Provider adapters: Codex CLI (verified live on 0.162.0-alpha.2), Claude Code (verified live on 2.1.302),
   test-only fake adapter.
 - Explainable router with hard filters, capacity handling and weighted scoring; pinned engineering lead.
 - Git worktree isolation, diff-scope enforcement, checkout-integrity check, integration merges.
 - Command policy and Saarathi-run verification with evidence; Markdown/JSON reports.
 - CLI: init, doctor (with `--live`), models list, policy validate, run, resume, answer, approve, status,
   tasks, logs, pause, cancel, review, report, route explain.
-- Example project `examples/health-widget` and demo script.
+- Example project `examples/health-widget` and demo script; live Claude-led two-provider run recorded.
+
+### Fixed
+- Build artifacts from workers' test runs (`__pycache__`, caches) no longer fail scope checks
+  (`execution.ignored_artifacts`).

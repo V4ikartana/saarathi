@@ -76,6 +76,8 @@ def build_report(project: Project, run_id: str) -> dict[str, Any]:
             "Verification commands ran with the user's OS permissions; they are not sandboxed.",
             "Worker self-reports are advisory; success was decided from Git state and verification only.",
             "Costs are shown only where the provider reported them; missing values are unknown, not zero.",
+            "Claude Code's cost figure is a client-side, API-equivalent estimate; on a subscription login it is not"
+            " a charge.",
         ],
     }
 
@@ -130,7 +132,7 @@ def render_markdown(data: dict[str, Any]) -> str:
             cost = usage.get("cost_usd")
             lines.append(
                 f"- Usage: in={usage.get('input_tokens')} out={usage.get('output_tokens')} "
-                f"cost={'unknown' if cost is None else f'${cost:.4f} (estimate)'}"
+                f"cost={'unknown' if cost is None else f'${cost:.4f} (provider estimate)'}"
             )
         for risk in t["worker_unresolved_risks"]:
             lines.append(f"- Worker-reported risk: {risk}")

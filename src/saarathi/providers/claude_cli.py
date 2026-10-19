@@ -1,8 +1,8 @@
 """Claude Code adapter (``claude -p``).
 
-Built against the official CLI reference and headless docs (fetched 2026-10-18). It has NOT yet been
-run live on a development host. `doctor` keeps it unavailable until the version, authentication and
-flag checks pass, and `saarathi doctor --live` performs a real structured completion.
+Built against the official CLI reference and headless docs (fetched 2026-10-18) and verified live on
+Claude Code 2.1.302 (docs/phase0/feasibility-report.md, section 6). `doctor` marks it unavailable unless
+the version and authentication checks pass; `saarathi doctor --live` performs a real structured completion.
 
 Security notes (ADR-0004): Claude Code's Bash tool is not OS-sandboxed in this configuration. The
 adapter uses ``--permission-mode dontAsk`` with an explicit allowlist (edit tools plus the task's
@@ -32,6 +32,7 @@ from saarathi.runtime.process import run_process, write_log
 from saarathi.security.env import filtered_env
 from saarathi.security.redaction import Redactor
 
+LIVE_UNVERIFIED_PREFIX = "Live behavior of this adapter is unverified"
 MIN_VERSION = (2, 1, 259)  # --permission-prompts none
 ENV_NAMES = ("CLAUDE_CONFIG_DIR",)
 SUBSCRIPTION_AUTH = frozenset({"claude.ai", "oauth_token"})
@@ -100,7 +101,7 @@ class ClaudeCodeAdapter(ProviderAdapter):
                 "Claude Code is signed in with a Claude subscription. Anthropic's terms describe subscription"
                 " auth as intended for ordinary use; prefer an API key for heavy or unattended runs. See ADR-0006."
             )
-        result.notices.append("Live behavior of this adapter is unverified until `saarathi doctor --live` passes.")
+        result.notices.append(f"{LIVE_UNVERIFIED_PREFIX} until `saarathi doctor --live` passes on this machine.")
         return result
 
     def build_argv(self, inv: Invocation) -> list[str]:

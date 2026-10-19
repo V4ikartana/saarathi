@@ -76,3 +76,19 @@ def test_checkout_snapshot_detects_user_checkout_change(repo):
     (repo / "src" / "app.py").write_text("tampered again, longer")  # already-dirty file edited again
     os.utime(repo / "src" / "app.py")
     assert g.checkout_snapshot() != dirty
+
+
+def test_build_artifacts_are_not_staged_or_counted(repo, tmp_path):
+    g = GitRepo(repo)
+    base = g.head()
+    wt = tmp_path / "wt"
+    g.ensure_worktree(wt, "saarathi/r/T-001", base)
+    (wt / "src" / "__pycache__").mkdir()
+    (wt / "src" / "__pycache__" / "app.cpython-312.pyc").write_bytes(b"\0")
+    (wt / "node_modules" / "x").mkdir(parents=True)
+    (wt / "node_modules" / "x" / "i.js").write_text("")
+    (wt / "src" / "health.py").write_text("OK = 1\n")
+    ignored = ["**/__pycache__/**", "**/*.pyc", "**/node_modules/**"]
+    assert g.stage_and_list_changes(wt, base, ignored) == ["src/health.py"]
+    commit = g.commit_staged(wt, "T-001")
+    assert commit and g.git("show", "--name-only", "--format=", commit, cwd=wt).split() == ["src/health.py"]

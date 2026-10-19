@@ -20,6 +20,7 @@ from saarathi.core.states import RunState
 from saarathi.orchestration.engine import Engine, render_plan
 from saarathi.orchestration.project import META, Project
 from saarathi.providers.base import Invocation, InvocationMode
+from saarathi.providers.claude_cli import LIVE_UNVERIFIED_PREFIX
 from saarathi.providers.registry import ProviderRegistry
 from saarathi.reporting.report import build_report, render_markdown
 from saarathi.routing.router import resolve_lead
@@ -252,6 +253,8 @@ def doctor(
                 typer.echo(f"Running a live probe on {name} (uses a small amount of quota)...", err=True)
             ok, detail = _live_probe(project.registry, name, adapter.config.models[0].id)
             entry["live"] = {"ok": ok, "detail": detail}
+            if ok:
+                entry["notices"] = [n for n in probe.notices if not n.startswith(LIVE_UNVERIFIED_PREFIX)]
         out.adapters.append(entry)
     lead, problems = resolve_lead(project.registry.models(), project.policy)
     out.lead = lead.candidate_id if lead else None

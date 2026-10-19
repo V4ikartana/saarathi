@@ -304,4 +304,7 @@ class RoutingDecision(Strict):
 
 def slugify(text: str, max_len: int = 48) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug[:max_len].rstrip("-") or "item"
+    if len(slug) > max_len:
+        cut = slug[:max_len]
+        slug = cut.rsplit("-", 1)[0] if "-" in cut else cut  # end on a whole word
+    return slug.rstrip("-") or "item"

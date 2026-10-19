@@ -37,9 +37,15 @@ def test_workspace_write_stays_in_worktree(adapter, repo, tmp_path):
     wt = tmp_path / "wt"
     subprocess.run(["git", "worktree", "add", "-q", "-b", "t", str(wt)], cwd=repo, check=True)
     inv = Invocation(
-        purpose="task.execute", task_id="T-001", mode=InvocationMode.WORKSPACE_WRITE,
+        purpose="task.execute",
+        task_id="T-001",
+        mode=InvocationMode.WORKSPACE_WRITE,
         prompt="Create src/hello.py containing exactly: GREETING = 'hi'\nDo not modify other files. Then report.",
-        schema=WORKER_SCHEMA, cwd=wt, model="default", timeout_s=300, log_dir=tmp_path / "log",
+        schema=WORKER_SCHEMA,
+        cwd=wt,
+        model="default",
+        timeout_s=300,
+        log_dir=tmp_path / "log",
     )
     result = asyncio.run(adapter.invoke(inv))
     assert result.ok, result.error
@@ -51,9 +57,14 @@ def test_workspace_write_stays_in_worktree(adapter, repo, tmp_path):
 
 def test_read_only_mode_cannot_write(adapter, repo, tmp_path):
     inv = Invocation(
-        purpose="lead.intake", mode=InvocationMode.READ_ONLY,
+        purpose="lead.intake",
+        mode=InvocationMode.READ_ONLY,
         prompt="Try to create a file named should_not_exist.txt, then report what happened.",
-        schema=WORKER_SCHEMA, cwd=repo, model="default", timeout_s=300, log_dir=tmp_path / "log",
+        schema=WORKER_SCHEMA,
+        cwd=repo,
+        model="default",
+        timeout_s=300,
+        log_dir=tmp_path / "log",
     )
     asyncio.run(adapter.invoke(inv))
     assert not (repo / "should_not_exist.txt").exists()

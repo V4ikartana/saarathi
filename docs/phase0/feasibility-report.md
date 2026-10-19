@@ -100,3 +100,32 @@ changes stay in the worktree and that the **read-only sandbox prevented a reques
 Still unverified: the Claude Code adapter (R1), and therefore the two-*provider* live run (backlog S14). The
 two-provider path is covered offline by `tests/e2e/test_scenarios.py::test_scenario_a_two_providers_to_reviewable_branch`
 with scripted fake adapters, which are labeled as such.
+
+## 6. Live evidence: Claude-led, two-provider run (2026-10-19)
+
+Claude Code 2.1.302 was installed with the official native installer (`curl -fsSL https://claude.ai/install.sh | bash`).
+The binary's code signature verified, and the user signed in with a Claude Pro subscription (`authMethod: claude.ai`).
+Codex had auto-updated to 0.162.0-alpha.17.2, and its flag checks still passed.
+
+`examples/health-widget` with `policy.claude-codex.yaml` (lead `claude-code:opus`):
+
+| Step | Result |
+|---|---|
+| `saarathi doctor --live` | Claude: structured completion in 9.6 s, model reported `claude-opus-5-5`. Codex: 7.8 s, model unreported |
+| Lead intake (Claude Opus) | Two material questions (XSS escaping, whether the page should call `/health`), each with a default. `--accept-defaults` recorded them as accepted defaults |
+| Plan (Claude Opus) | Two parallel tasks, two ADRs, bounded paths, stdlib checks; passed policy validation |
+| Routing | T-001 → `claude-code:sonnet` (best tier fit for routine work); T-002 → `codex-cli:default` (provider-spread bonus) |
+| T-002 on Codex | Succeeded on attempt 1 |
+| T-001 attempt 1 on Claude Sonnet | **Rejected**: running the tests left `__pycache__/*.pyc` files, which the scope check flagged |
+| T-001 attempt 2 | Routed to `claude-code:opus` (Sonnet deprioritized after failing; Codex busy); succeeded using the failure feedback |
+| Integration | Three checks, all exit 0; `--no-ff` merges on `saarathi/<run>/integration`; user's `main` unchanged |
+| Lead review (Claude Opus) | `approve`, with three accurate non-blocking concerns (no JS-level escaping test, untracked `__pycache__`, widget not yet wired) |
+
+The full report is saved in [`evidence/live-claude-codex-report.md`](evidence/live-claude-codex-report.md).
+
+**Defect found and fixed:** build artifacts produced by running tests counted as task changes. Saarathi now never
+stages paths matching `execution.ignored_artifacts` (default: `__pycache__`, `*.pyc`, tool caches, `node_modules`,
+`.DS_Store`). Artifacts a worker commits itself still count.
+
+Opt-in live tests for Claude (`tests/live/test_claude_live.py`) passed: worktree writes stayed isolated, and read-only
+mode blocked a requested write.

@@ -5,9 +5,8 @@
 Saarathi is an open-source, local-first orchestrator that coordinates AI coding agents (Claude Code,
 Codex CLI and others) to turn a project brief into a verified, reviewable Git branch.
 
-> **Project status: pre-alpha (v0.1 vertical slice).** The control plane, routing, recovery and Codex
-> CLI adapter work and are tested. The Claude Code adapter is implemented against official documentation
-> but has **not yet been verified live**. See [Known limitations](#known-limitations).
+> **Project status: pre-alpha (v0.1 vertical slice).** A Claude-led run with Claude Code and Codex CLI workers
+> has been demonstrated live from brief to verified integration branch on macOS. See [Known limitations](#known-limitations).
 
 ## What it does
 
@@ -31,8 +30,8 @@ and one control plane:
 
 | Provider CLI | Adapter status | Evidence |
 |---|---|---|
-| Codex CLI (`codex exec`) | **Verified live** on codex-cli 0.162.0-alpha.2 (macOS) | [feasibility report](docs/phase0/feasibility-report.md) |
-| Claude Code (`claude -p`) ≥ 2.1.259 | Implemented, **unverified live**; disabled until `saarathi doctor --live` passes | [compatibility matrix](docs/providers/compatibility-matrix.md) |
+| Codex CLI (`codex exec`) | **Verified live** on codex-cli 0.162.0-alpha.2 and alpha.17.2 (macOS) | [feasibility report](docs/phase0/feasibility-report.md) |
+| Claude Code (`claude -p`) ≥ 2.1.259 | **Verified live** on 2.1.302 (macOS, subscription login) | [compatibility matrix](docs/providers/compatibility-matrix.md) |
 | Antigravity / Gemini CLI | Not implemented (planned) | |
 | Anthropic / OpenAI / Google APIs | Not implemented (planned, with budgets) | |
 
@@ -99,7 +98,7 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
 
 ## Known limitations
 
-- Claude Code adapter not yet verified live; the two-provider live demonstration is pending.
+- Live verification so far covers one macOS host; Linux has offline tests only.
 - Operational orchestration is rule-based (retries with feedback, escalation by pausing). Model-backed triage is planned.
 - No API adapters, budget ledger or integration/account-aware routing (brief §12A) yet.
 - A failed task stays failed for that run. Recovery from escalations means a new run.

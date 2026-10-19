@@ -519,7 +519,7 @@ class Engine:
             with contextlib.suppress(Exception):
                 assessment.worker_report = WorkerReport.model_validate(result.structured)
         assessment.checkout_modified = git.checkout_snapshot() != before
-        changed = git.stage_and_list_changes(path, base)
+        changed = git.stage_and_list_changes(path, base, self.p.policy.execution.ignored_artifacts)
         assessment.changed_files = changed
         assessment.scope_violations = scope_violations(changed, task.packet.allowed_paths)
 

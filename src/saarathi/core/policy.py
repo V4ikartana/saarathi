@@ -77,6 +77,17 @@ class PermissionsConfig(Strict):
     require_approval_for_merge: bool = True
 
 
+DEFAULT_IGNORED_ARTIFACTS = (
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/.pytest_cache/**",
+    "**/.mypy_cache/**",
+    "**/.ruff_cache/**",
+    "**/node_modules/**",
+    "**/.DS_Store",
+)
+
+
 class ExecutionConfig(Strict):
     task_timeout_seconds: int = Field(default=1800, ge=10)
     verification_timeout_seconds: int = Field(default=600, ge=5)
@@ -84,6 +95,8 @@ class ExecutionConfig(Strict):
     max_attempts: int = Field(default=2, ge=1, le=5)
     env_passthrough: list[str] = Field(default_factory=list)
     max_log_bytes: int = Field(default=2_000_000, ge=10_000)
+    # Build artifacts that are never committed or counted as task changes.
+    ignored_artifacts: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_ARTIFACTS))
 
 
 class DeclaredModel(Strict):
@@ -193,6 +206,8 @@ execution:
   lead_timeout_seconds: 900
   max_attempts: 2
   env_passthrough: []         # extra environment variable names workers may see
+  # ignored_artifacts: build outputs never committed or counted as changes
+  # (default: __pycache__, *.pyc, .pytest_cache, .mypy_cache, .ruff_cache, node_modules, .DS_Store)
 
 providers:
   claude-code:

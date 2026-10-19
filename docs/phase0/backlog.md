@@ -19,7 +19,7 @@ Each item has a testable definition of done (DoD). `→` lists dependencies. Sta
 | S11 | Engine: scheduler, leases, retries with feedback, escalation pause, integration, report | S3–S10 | Scenario A with fakes passes | Done |
 | S12 | Recovery: engine lock, orphan reconciliation, no duplicate worker runs | S11 | Scenario B (SIGKILL mid-run, resume) passes | Done |
 | S13 | CLI: init, doctor, models list, policy validate, run, resume, answer, approve, status, tasks, logs, route explain, review, report, pause | S11 | `--json` output validated against pydantic schemas; stable exit codes | Done |
-| S14 | Live two-provider demonstration (Claude + Codex) on `examples/health-widget` | S13, **user installs Claude Code** | Scenario A with real CLIs produces a branch and report | **Blocked (R1)**; Codex-only live run passed |
+| S14 | Live two-provider demonstration (Claude + Codex) on `examples/health-widget` | S13, user installs Claude Code | Scenario A with real CLIs produces a branch and report | Done (2026-10-19; see feasibility report §6) |
 
 ## Phase 2: complete v0.1
 

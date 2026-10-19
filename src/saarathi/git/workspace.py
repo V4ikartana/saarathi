@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -175,9 +176,15 @@ class GitRepo:
 
     # -------------------------------------------------------------- changes
 
-    def stage_and_list_changes(self, path: Path, base: str) -> list[str]:
-        """Stage everything in the worktree and list paths differing from ``base`` (commits included)."""
-        self.git("add", "-A", cwd=path)
+    def stage_and_list_changes(self, path: Path, base: str, ignored: Sequence[str] = ()) -> list[str]:
+        """Stage the worktree and list paths differing from ``base`` (commits included).
+
+        ``ignored`` globs (build artifacts such as ``**/__pycache__/**``) are never staged, so running
+        tests inside a worktree does not count as an out-of-scope change. Anything a worker committed
+        itself is still listed.
+        """
+        excludes = [f":(exclude,glob){pattern}" for pattern in ignored]
+        self.git("add", "-A", "--", ".", *excludes, cwd=path)
         out = self.git("diff", "--cached", "--name-only", "--no-renames", base, cwd=path)
         return sorted(line for line in out.splitlines() if line)
 
