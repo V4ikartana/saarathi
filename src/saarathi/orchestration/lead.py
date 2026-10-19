@@ -37,6 +37,12 @@ def plan_policy_problems(plan: Plan, policy: Policy) -> list[str]:
         unknown = [c for c in task.required_capabilities if c not in prompts.KNOWN_CAPABILITIES]
         if unknown:
             problems.append(f"{task.id} requires unknown capabilities {unknown}")
+        accounts: dict[str, set[str | None]] = {}
+        for req in task.integrations:
+            accounts.setdefault(req.service, set()).add(req.account)
+        for service, selectors in sorted(accounts.items()):
+            if len(selectors) > 1:
+                problems.append(f"{task.id} uses several {service} accounts; split it into one task per account")
         for pattern in task.allowed_paths:
             if any(path_matches(pattern.rstrip("*").rstrip("/") + "/x", d) for d in ALWAYS_DENIED):
                 problems.append(f"{task.id} allowed path {pattern!r} covers a protected location")

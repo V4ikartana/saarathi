@@ -11,6 +11,7 @@ from saarathi.core.policy import ProviderConfig
 from saarathi.orchestration.prompts import WORKER_SCHEMA
 from saarathi.providers.base import Invocation, InvocationMode
 from saarathi.providers.claude_cli import ClaudeCodeAdapter
+from tests.live.integration_plan import run_lead_plan
 
 pytestmark = [
     pytest.mark.live,
@@ -66,3 +67,8 @@ def test_read_only_mode_cannot_write(adapter, repo, tmp_path):
     )
     asyncio.run(adapter.invoke(inv))
     assert not (repo / "should_not_exist.txt").exists()
+
+
+def test_lead_plan_with_integration_requirement_validates(adapter, repo, tmp_path):
+    plan = run_lead_plan(adapter, repo, tmp_path, MODEL)
+    print(plan.model_dump_json(indent=2, include={"tasks"}))

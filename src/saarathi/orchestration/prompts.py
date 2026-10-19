@@ -32,6 +32,10 @@ def _str_list() -> dict[str, Any]:
     return {"type": "array", "items": {"type": "string"}}
 
 
+def _nullable_str() -> dict[str, Any]:
+    return {"type": ["string", "null"]}
+
+
 def _obj(props: dict[str, Any]) -> dict[str, Any]:
     return {"type": "object", "additionalProperties": False, "properties": props, "required": list(props)}
 
@@ -50,6 +54,22 @@ INTAKE_SCHEMA = _obj(
             ),
         },
         "assumptions": _str_list(),
+    }
+)
+
+# Mirrors core.contracts.IntegrationRequirement. The strict subset has no optional properties, so every field is
+# required and "not specified" is null. Patterns and lengths are enforced by pydantic, not by the schema.
+INTEGRATION_REQUIREMENT_SCHEMA = _obj(
+    {
+        "service": {"type": "string"},
+        "operation": {"type": "string"},
+        "account": _nullable_str(),
+        "tenant": _nullable_str(),
+        "resource": _nullable_str(),
+        "data_class": {"type": "string"},
+        "identity_sensitive": {"type": "boolean"},
+        "consent_required": {"type": "boolean"},
+        "share_fields": _str_list(),
     }
 )
 
@@ -74,6 +94,7 @@ PLAN_SCHEMA = _obj(
                     },
                     "complexity": {"type": "string", "enum": ["routine", "standard", "complex"]},
                     "risk": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "integrations": {"type": "array", "items": INTEGRATION_REQUIREMENT_SCHEMA},
                 }
             ),
         },
@@ -161,6 +182,19 @@ Rules for the plan:
 - dependencies list task ids that must finish first. Keep the graph acyclic.
 - complexity: routine | standard | complex. required_capabilities from: {", ".join(KNOWN_CAPABILITIES)}.
   Tasks that edit files need code_generation, workspace_write and structured_output.
+- integrations: connected services a task must use at run time (for example a mailbox or a calendar). Leave it
+  empty for ordinary code changes. Each entry is ONE operation on ONE account:
+  - service and operation are lowercase dotted names (e.g. service "mail.gmail", operation "mail.read").
+  - account names exactly one account (an id, alias or address the brief gives), or null to use the scoped default
+    or let the user choose. Never a list, wildcard or "all accounts".
+  - If the work needs several accounts, make one task per account, each with its own requirement. Never put two
+    accounts of the same service in one task.
+  - tenant and resource are null unless the brief names them. data_class is "public", "internal" or a stricter
+    class the brief states. identity_sensitive is true when the result depends on whose account it is.
+    consent_required is true when the operation needs the user's consent. share_fields lists only the result
+    fields later tasks may receive (may be empty).
+  - You only state what the task needs. Saarathi decides which worker and account satisfy it, and never assumes a
+    worker has access it has not verified.
 - decisions: architecture decisions worth recording as ADRs (may be empty).
 - Use only tools and dependencies already present in the repository unless the brief says otherwise.
 
