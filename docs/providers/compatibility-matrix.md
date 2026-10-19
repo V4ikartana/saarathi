@@ -3,9 +3,9 @@
 Legend: **V** verified live on a host · **D** documented officially, not yet run · **–** unsupported or unknown (treated as unsupported).
 Evidence and dates are in [`docs/phase0/feasibility-report.md`](../phase0/feasibility-report.md).
 
-| Capability | Codex CLI 0.162.0-alpha.2 / alpha.17.2 | Claude Code 2.1.302 | Antigravity CLI (`agy`) 1.4.2 | Anthropic / OpenAI / Google APIs |
+| Capability | Codex CLI 0.162.0-alpha.2 → 0.163.0 | Claude Code 2.1.302 | Antigravity CLI (`agy`) 1.4.2 | Anthropic / OpenAI / Google APIs |
 |---|---|---|---|---|
-| Adapter status in v0.1 | **Enabled, verified live** | **Enabled, verified live** (Pro subscription login) | **Enabled, verified live** (Google account login) | Deferred past v0.1 (ADR-0011) |
+| Adapter status in v0.1 | **Enabled, verified live** (0.163.0 stable via npm, 2026-10-19) | **Enabled, verified live** (Pro subscription login) | **Enabled, verified live** (Google account login) | Deferred past v0.1 (ADR-0011) |
 | Non-interactive execution | V `codex exec` | V `claude -p`, prompt on stdin | V `agy -p <prompt>` (prompt is an argument; no stdin mode) | n/a |
 | Structured final output | V `--output-schema` + `-o` | V `--json-schema` → `structured_output` | V `--output-format json --json-schema` → `structured_output`; a denied tool leaves it empty with exit 0 | D |
 | Strict schema with nullable fields and nested closed objects (lead plan with `integrations`) | V (alpha.17.2, 2026-10-19) | V (2.1.302, 2026-10-19) | V escalation schema (nested object, nullable integer), 2026-10-19; plan schema with `integrations` not yet run | n/a |

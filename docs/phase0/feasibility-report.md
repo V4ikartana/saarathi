@@ -162,3 +162,11 @@ cannot write, and the lead escalation schema (nested object, nullable integer) i
 | Lead review | `approve`, with three accurate non-blocking concerns |
 
 Report: [`evidence/live-three-provider-report.md`](evidence/live-three-provider-report.md).
+
+## 8. Codex CLI 0.163.0 (stable) re-check (2026-10-19)
+
+The user replaced the bundled alpha with `@openai/codex` 0.163.0 from npm (Node v22.23.1 via `fnm`), now on `PATH`.
+`saarathi doctor` passed every check (version, all `codex exec` flags the adapter uses, ChatGPT login), and the opt-in
+live tests passed: workspace writes stay in the worktree, read-only mode cannot write, and usage parsing is unchanged.
+Note: `fnm` exposes `codex` through per-shell `fnm_multishells` directories; the stable path is
+`~/.local/share/fnm/aliases/default/bin/codex`, and `node` must be on `PATH` because `codex` is a Node script.

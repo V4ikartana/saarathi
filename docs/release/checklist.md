@@ -8,6 +8,6 @@
       subscription-only form: API modes are out of scope for v0.1 (ADR-0011).
 - [ ] CHANGELOG updated; version bumped in `pyproject.toml` and `src/saarathi/__init__.py`.
 - [ ] `uv.lock` committed; the CI `package` job builds the wheel and `scripts/smoke-test-wheel.sh` passes.
-- [ ] PyPI distribution name, repository name and trademark checked (R13; PyPI name free as of 2026-10-19, similar `sarathi` exists).
+- [x] PyPI distribution name, repository name and trademark checked (R13, [name-clearance-2026-10-19](name-clearance-2026-10-19.md)); owner accepts the residual India/`sarathi` risk before going public.
 - [ ] Private vulnerability reporting enabled on the GitHub repository when it becomes public (SECURITY.md relies on it).
 - [ ] README limitations reviewed for accuracy.
