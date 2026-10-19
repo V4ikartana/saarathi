@@ -6,6 +6,7 @@ environment, no shell, timeout). They are not sandboxed; see docs/security/threa
 
 from __future__ import annotations
 
+import re
 import shlex
 from collections.abc import Sequence
 from pathlib import Path
@@ -52,6 +53,15 @@ DESTRUCTIVE_TOOLS = frozenset(
         "launchctl",
         "systemctl",
         "crontab",
+        # Windows
+        "taskkill",
+        "reg",
+        "icacls",
+        "takeown",
+        "format",
+        "diskpart",
+        "schtasks",
+        "sc",
     }
 )
 PACKAGE_MANAGERS = frozenset(
@@ -80,17 +90,33 @@ PACKAGE_MANAGERS = frozenset(
     }
 )
 INSTALL_VERBS = frozenset({"install", "i", "add", "ci", "update", "upgrade", "sync", "get"})
-INLINE_CODE_FLAGS = {
-    "sh": "-c",
-    "bash": "-c",
-    "zsh": "-c",
-    "python": "-c",
-    "python3": "-c",
-    "node": "-e",
-    "ruby": "-e",
-    "perl": "-e",
+INLINE_CODE_FLAGS: dict[str, frozenset[str]] = {
+    "sh": frozenset({"-c"}),
+    "bash": frozenset({"-c"}),
+    "zsh": frozenset({"-c"}),
+    "python": frozenset({"-c"}),
+    "py": frozenset({"-c"}),
+    "node": frozenset({"-e", "--eval", "-p", "--print"}),
+    "ruby": frozenset({"-e"}),
+    "perl": frozenset({"-e", "-E"}),
+    "cmd": frozenset({"/c", "/k"}),
+    "powershell": frozenset({"-c", "-command", "-encodedcommand", "-e", "-ec"}),
+    "pwsh": frozenset({"-c", "-command", "-encodedcommand", "-e", "-ec"}),
 }
 GIT_READ_ONLY = frozenset({"status", "diff", "log", "show", "ls-files", "rev-parse"})
+
+
+WINDOWS_SUFFIXES = (".exe", ".cmd", ".bat", ".com")
+
+
+def executable_name(token: str) -> str:
+    """Normalised program name: ``Python.EXE`` and ``python`` are the same program to the policy."""
+    name = Path(token.replace("\\", "/")).name.lower()
+    for suffix in WINDOWS_SUFFIXES:
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    return re.sub(r"^(python|pip)[0-9.]*$", r"\1", name)  # python3.12 -> python, pip3 -> pip
 
 
 def check_command(command: str, permissions: PermissionsConfig) -> str | None:
@@ -103,9 +129,12 @@ def check_command(command: str, permissions: PermissionsConfig) -> str | None:
         return f"cannot parse command: {exc}"
     if not argv:
         return "empty command"
-    exe = Path(argv[0]).name
+    exe = executable_name(argv[0])
     args = argv[1:]
-    if "/" in argv[0] and not argv[0].startswith(("./", "bin/", "scripts/")):
+    first = argv[0].replace("\\", "/")
+    if (re.match(r"^[A-Za-z]:", first) or "/" in first) and not first.startswith(("./", "bin/", "scripts/")):
+        return "absolute or parent-relative executables are not allowed"
+    if ".." in first.split("/"):
         return "absolute or parent-relative executables are not allowed"
     if exe in NETWORK_TOOLS and not permissions.allow_network:
         return f"'{exe}' needs network access (permissions.allow_network is false)"
@@ -113,11 +142,12 @@ def check_command(command: str, permissions: PermissionsConfig) -> str | None:
         return f"'{exe}' is a deployment tool (permissions.allow_deployment is false)"
     if exe in DESTRUCTIVE_TOOLS:
         return f"'{exe}' is not allowed in verification commands"
-    if exe in INLINE_CODE_FLAGS and INLINE_CODE_FLAGS[exe] in args:
-        return f"inline code via '{exe} {INLINE_CODE_FLAGS[exe]}' is not allowed"
+    inline = INLINE_CODE_FLAGS.get(exe, frozenset()) & {a.lower() for a in args}
+    if inline:
+        return f"inline code via '{exe} {sorted(inline)[0]}' is not allowed"
     if exe == "git" and (not args or args[0] not in GIT_READ_ONLY):
         return "only read-only git subcommands are allowed"
-    tokens = {Path(a).name for a in argv}
+    tokens = {executable_name(a) for a in argv}
     if (tokens & PACKAGE_MANAGERS) and (set(args) & INSTALL_VERBS) and not permissions.allow_dependency_install:
         return "dependency installation is not allowed (permissions.allow_dependency_install is false)"
     return None

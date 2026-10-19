@@ -2,9 +2,13 @@
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
+
+# The test interpreter by name; `uv run` puts its directory first on PATH on every OS.
+PY = Path(sys.executable).name
 
 HEALTH = 'def health():\n    return {"status": "ok"}\n'
 HEALTH_TEST = (
@@ -41,16 +45,16 @@ PLAN = {
             "T-001",
             "Health endpoint",
             ["app/**", "tests/test_health.py"],
-            "python3 -m unittest tests.test_health",
+            f"{PY} -m unittest tests.test_health",
         ),
         task(
             "T-002",
             "Status widget",
             ["ui/**", "tests/test_widget.py"],
-            "python3 -m unittest tests.test_widget",
+            f"{PY} -m unittest tests.test_widget",
         ),
     ],
-    "integration_checks": ["python3 -m unittest discover -s tests -t ."],
+    "integration_checks": [f"{PY} -m unittest discover -s tests -t ."],
     "decisions": [{"title": "Keep modules dependency-free", "context": "Tiny demo", "decision": "Stdlib only"}],
 }
 

@@ -97,7 +97,7 @@ class ProjectMemory:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:  # LF on every platform
                 fh.write(content)
             os.replace(tmp, path)
         except BaseException:

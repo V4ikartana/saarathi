@@ -1,4 +1,8 @@
-"""Bounded subprocess execution: own process group, timeout, cancellation, capped output."""
+"""Bounded subprocess execution: own process tree, timeout, cancellation, capped output.
+
+POSIX: each child starts a new session, so its process group (pgid == pid) is signalled as a unit.
+Windows: each child starts a new process group, and its tree is ended with ``taskkill /T``.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,8 @@ import asyncio
 import contextlib
 import os
 import signal
+import subprocess
+import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -50,22 +56,33 @@ async def _read_capped(stream: asyncio.StreamReader | None, limit: int) -> tuple
     return b"".join(chunks), truncated
 
 
-def kill_process_group(pgid: int, sig: int = signal.SIGTERM) -> bool:
+def terminate_tree(pid: int, *, force: bool = False) -> bool:
+    """Ask a child and everything it started to stop (``force``: kill outright). True if a signal was sent."""
+    if sys.platform == "win32":
+        argv = ["taskkill", "/PID", str(pid), "/T", *(["/F"] if force else [])]
+        done = subprocess.run(argv, capture_output=True, check=False, stdin=subprocess.DEVNULL)
+        return done.returncode == 0
     try:
-        os.killpg(pgid, sig)
+        os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
         return True
     except (ProcessLookupError, PermissionError):
         return False
 
 
+def _spawn_options() -> dict[str, object]:
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
 async def _terminate(proc: asyncio.subprocess.Process) -> None:
     if proc.returncode is not None:
         return
-    kill_process_group(proc.pid, signal.SIGTERM)
+    terminate_tree(proc.pid)
     try:
         await asyncio.wait_for(proc.wait(), TERM_GRACE_SECONDS)
     except TimeoutError:
-        kill_process_group(proc.pid, signal.SIGKILL)
+        terminate_tree(proc.pid, force=True)
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(proc.wait(), TERM_GRACE_SECONDS)
 
@@ -80,9 +97,9 @@ async def run_process(
     max_output_bytes: int = 2_000_000,
     on_start: Callable[[int], None] | None = None,
 ) -> ProcessResult:
-    """Run ``argv`` without a shell in a new session (process group == pid).
+    """Run ``argv`` without a shell as the root of its own process tree.
 
-    On timeout or task cancellation the whole process group is terminated, then killed.
+    On timeout or task cancellation the whole tree is terminated, then killed.
     Cancellation is re-raised after cleanup.
     """
     started = time.monotonic()
@@ -93,7 +110,7 @@ async def run_process(
         stdin=asyncio.subprocess.PIPE if stdin_data is not None else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        start_new_session=True,
+        **_spawn_options(),  # type: ignore[arg-type]
     )
     if on_start is not None:
         on_start(proc.pid)
@@ -154,6 +171,21 @@ def write_log(path: Path, result: ProcessResult, redactor: Callable[[str], str])
 
 
 def process_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # Never os.kill(pid, 0) here: on Windows that terminates the process.
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: exists, not ours to inspect
+        try:
+            code = wintypes.DWORD()
+            ok = kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return bool(ok) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

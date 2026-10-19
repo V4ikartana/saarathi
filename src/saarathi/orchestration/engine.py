@@ -12,7 +12,6 @@ import contextlib
 import hashlib
 import json
 import os
-import signal
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -47,7 +46,7 @@ from saarathi.orchestration.project import Project
 from saarathi.providers.base import ErrorKind, Invocation, InvocationMode
 from saarathi.reporting.report import write_report
 from saarathi.routing.router import RoutingRequest, RuntimeLoad, resolve_lead, route
-from saarathi.runtime.process import kill_process_group, process_alive
+from saarathi.runtime.process import process_alive, terminate_tree
 from saarathi.security.redaction import Redactor
 from saarathi.storage.store import AttemptRecord, EscalationRecord, TaskRecord, utcnow
 from saarathi.verification.verifier import all_passed, run_verification
@@ -1181,7 +1180,7 @@ class Engine:
                 continue
             assert attempt is not None
             if attempt.pid and attempt.pid != os.getpid() and process_alive(attempt.pid):
-                kill_process_group(attempt.pid, signal.SIGTERM)
+                terminate_tree(attempt.pid)
                 store.append_event(
                     "recovery.killed_orphan",
                     {"pid": attempt.pid},

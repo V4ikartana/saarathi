@@ -19,6 +19,9 @@ jobs:
           # macOS minutes cost 10x on private repositories: one Python version is enough there.
           - os: macos-latest
             python: "3.12"
+          # Windows minutes cost 2x on private repositories.
+          - os: windows-latest
+            python: "3.12"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -27,10 +30,13 @@ jobs:
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
       - run: uv run mypy
-      - run: |
+      - name: Configure git for tests
+        run: |
           git config --global user.email ci@example.com
           git config --global user.name CI
-          uv run pytest -q
+          git config --global core.autocrlf false
+          git config --global core.longpaths true
+      - run: uv run pytest -q
 
   package:
     runs-on: ubuntu-latest

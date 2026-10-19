@@ -7,7 +7,7 @@ import pytest
 from saarathi.core.states import RunState, TaskState
 from saarathi.orchestration.engine import Engine
 from saarathi.orchestration.project import Project
-from tests.e2e.helpers import GOOD_T1, GOOD_T2, PLAN, init_project, make_script, records, task
+from tests.e2e.helpers import GOOD_T1, GOOD_T2, PLAN, PY, init_project, make_script, records, task
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +38,7 @@ def test_chain_sees_dependency_code(repo, tmp_path):
     t2 = {
         **PLAN["tasks"][1],
         "dependencies": ["T-001"],
-        "verification_commands": ["python3 -m unittest tests.test_widget tests.test_health"],
+        "verification_commands": [f"{PY} -m unittest tests.test_widget tests.test_health"],
     }
     plan = {**PLAN, "tasks": [PLAN["tasks"][0], t2]}
     init_project(
@@ -61,7 +61,7 @@ def test_diamond_merges_both_parents(repo, tmp_path):
         "T-003",
         "Combine",
         ["combined.txt"],
-        "python3 -m unittest tests.test_health tests.test_widget",
+        f"{PY} -m unittest tests.test_health tests.test_widget",
         deps=["T-001", "T-002"],
     )
     plan = {**PLAN, "tasks": [*PLAN["tasks"], t3]}

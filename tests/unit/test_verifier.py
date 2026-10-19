@@ -1,4 +1,6 @@
 import asyncio
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -51,8 +53,8 @@ def test_permissions_unlock_network():
 def test_run_verification_stops_on_failure_and_records_evidence(tmp_path):
     (tmp_path / "ok.py").write_text("print('fine')")
     (tmp_path / "bad.py").write_text("import sys; sys.exit(3)")
-    # The interpreter must be resolvable on the filtered PATH; use python3 which CI images provide.
-    cmds = ["python3 ok.py", "python3 bad.py", "python3 ok.py"]
+    py = Path(sys.executable).name  # resolvable on the filtered PATH under `uv run`, on every OS
+    cmds = [f"{py} ok.py", f"{py} bad.py", f"{py} ok.py"]
     ev = asyncio.run(run_verification(cmds, cwd=tmp_path, permissions=DEFAULT, timeout_s=30, log_dir=tmp_path / "l"))
     assert [e.exit_code for e in ev] == [0, 3]
     assert not all_passed(ev, len(cmds))
@@ -68,3 +70,31 @@ def test_rejected_command_is_evidence_not_execution(tmp_path):
 
 def test_no_commands_is_not_success():
     assert not all_passed([], 0)
+
+
+@pytest.mark.parametrize(
+    "cmd,fragment",
+    [
+        ("python3.12 -c 'import os'", "inline code"),
+        ("Python.EXE -c x", "inline code"),
+        ("py -c x", "inline code"),
+        ("cmd /c del x", "inline code"),
+        ("powershell -Command Remove-Item x", "inline code"),
+        ("pwsh -EncodedCommand AAAA", "inline code"),
+        ("pip3.11 install requests", "dependency"),
+        ("C:/Python/python.exe -m pytest", "absolute"),
+        ("C:\\Python\\python.exe -m pytest", "absolute"),
+        ("../bin/tool", "absolute"),
+        ("bin/../../evil", "absolute"),
+        ("taskkill /F /IM x.exe", "not allowed"),
+        ("curl.exe https://x", "network"),
+    ],
+)
+def test_windows_and_versioned_names_rejected(cmd, fragment):
+    reason = check_command(cmd, DEFAULT)
+    assert reason and fragment in reason
+
+
+@pytest.mark.parametrize("cmd", ["python.exe -m pytest", "python3.12 -m unittest", "scripts/check.sh", "npm.cmd test"])
+def test_windows_and_versioned_names_allowed(cmd):
+    assert check_command(cmd, DEFAULT) is None

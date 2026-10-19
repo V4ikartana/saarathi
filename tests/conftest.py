@@ -21,6 +21,8 @@ def repo(tmp_path) -> Path:
     git(root, "config", "user.email", "dev@example.com")
     git(root, "config", "user.name", "Dev")
     git(root, "config", "commit.gpgsign", "false")
+    git(root, "config", "core.autocrlf", "false")  # byte-for-byte content checks on Windows
+    git(root, "config", "core.longpaths", "true")
     (root / "README.md").write_text("# demo\n")
     (root / "src").mkdir()
     (root / "src" / "app.py").write_text("VALUE = 1\n")

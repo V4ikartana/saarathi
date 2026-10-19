@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import fcntl
 import os
+import sys
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -98,21 +98,34 @@ class Project:
 
     @contextmanager
     def engine_lock(self) -> Iterator[None]:
-        """Exclusive, crash-safe lock: the OS releases it when the holder dies."""
+        """Exclusive, crash-safe lock: the OS releases it when the holder dies (flock / msvcrt.locking)."""
         self.meta.mkdir(parents=True, exist_ok=True)
         fd = os.open(self.meta / "engine.lock", os.O_RDWR | os.O_CREAT, 0o600)
         try:
             try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
+                _lock_exclusive(fd)
+            except OSError as exc:
                 raise EngineLocked(
                     "another Saarathi engine is driving this project", hint="wait for it or stop it first"
                 ) from exc
-            os.ftruncate(fd, 0)
-            os.write(fd, str(os.getpid()).encode())
+            os.lseek(fd, 1, os.SEEK_SET)  # byte 0 is the lock byte on Windows; the pid follows it
+            os.write(fd, str(os.getpid()).encode().ljust(16))
             yield
         finally:
             os.close(fd)
 
     def close(self) -> None:
         self.store.close()
+
+
+def _lock_exclusive(fd: int) -> None:
+    """Non-blocking exclusive lock; raises OSError if another process holds it."""
+    if sys.platform == "win32":
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

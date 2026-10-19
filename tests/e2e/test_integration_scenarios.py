@@ -19,7 +19,7 @@ def allow_fakes(monkeypatch):
 
 def itask(tid, title, integrations, deps=()):
     path = f"notes/{tid.lower()}.md"
-    return {**task(tid, title, [path], f"test -f {path}", deps), "integrations": integrations}
+    return {**task(tid, title, [path], f"git ls-files --error-unmatch {path}", deps), "integrations": integrations}
 
 
 def plan(*tasks):

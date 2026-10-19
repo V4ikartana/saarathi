@@ -1,7 +1,6 @@
 """Scenario B: kill the orchestrator mid-run, restart, and prove recovery without duplicate execution."""
 
 import os
-import signal
 import sqlite3
 import subprocess
 import sys
@@ -57,7 +56,7 @@ def kill_when(repo, env, predicate, timeout=60):
             time.sleep(0.2)
         else:
             pytest.fail("condition never reached")
-        os.kill(proc.pid, signal.SIGKILL)  # simulate a crash: no cleanup code runs
+        proc.kill()  # simulate a crash: SIGKILL on POSIX, TerminateProcess on Windows; no cleanup code runs
         proc.wait(10)
     finally:
         if proc.poll() is None:

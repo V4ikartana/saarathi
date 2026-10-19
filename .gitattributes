@@ -1,0 +1,4 @@
+# LF everywhere: fixtures are byte-exact and scripts must run on Linux and macOS.
+* text=auto eol=lf
+*.json text eol=lf
+*.sh text eol=lf
