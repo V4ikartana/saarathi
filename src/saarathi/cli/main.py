@@ -36,6 +36,7 @@ from saarathi.core.policy import load_policy
 from saarathi.core.states import RunState
 from saarathi.integrations.discovery import discovery_for
 from saarathi.integrations.model import ConnectionStatus, Evidence, IntegrationSnapshot
+from saarathi.memory.lessons import approve_lesson
 from saarathi.orchestration.engine import GRANT_PREFIX, SELECT_PREFIX, Engine, render_plan
 from saarathi.orchestration.project import META, Project
 from saarathi.providers.base import Invocation, InvocationMode
@@ -57,6 +58,10 @@ app.add_typer(models_app, name="models")
 app.add_typer(policy_app, name="policy")
 app.add_typer(route_app, name="route")
 providers_app = typer.Typer(help="Provider limits and cooldowns.", no_args_is_help=True)
+lessons_app = typer.Typer(
+    help="Lessons proposed by workers; nothing is kept without your approval.", invoke_without_command=True
+)
+app.add_typer(lessons_app, name="lessons")
 escalations_app = typer.Typer(
     help="Escalations raised by workers and the lead's verdicts.", invoke_without_command=True
 )
@@ -350,6 +355,56 @@ def _active_limits(project: Project) -> dict[str, str]:
         for h in project.store.provider_health().values()
         if h.until > now
     }
+
+
+@lessons_app.callback()
+def lessons_list(
+    ctx: typer.Context,
+    all_: Annotated[bool, typer.Option("--all", help="Include approved and rejected proposals.")] = False,
+    json_out: JsonFlag = False,
+) -> None:
+    """List lesson proposals from verified work."""
+    if ctx.invoked_subcommand:
+        return
+    project = _project()
+    items = project.store.lessons(status=None if all_ else "proposed")
+    if json_out:
+        typer.echo(json.dumps([i.__dict__ for i in items], indent=2))
+        return
+    if not items:
+        typer.echo("No lesson proposals." if not all_ else "No lessons recorded.")
+    for i in items:
+        typer.echo(f"{i.id} [{i.status}] {i.task_id} via {i.source}: {i.text}")
+    if any(i.status == "proposed" for i in items):
+        typer.echo(
+            "Keep one with `saarathi lessons approve <id> [--text ...]`, drop it with `saarathi lessons reject <id>`."
+        )
+
+
+@lessons_app.command("approve")
+def lessons_approve(
+    lesson_id: str,
+    text: Annotated[str | None, typer.Option("--text", help="Edited wording to keep instead.")] = None,
+) -> None:
+    """Add a proposal to .saarathi/lessons.md, optionally reworded. Later tasks see it in their context."""
+    project = _project()
+    try:
+        lesson = approve_lesson(project.store, project.memory, lesson_id, text=text)
+    except (SaarathiError, ValueError) as exc:
+        _fail(exc if isinstance(exc, SaarathiError) else SaarathiError(str(exc)))
+        raise
+    typer.echo(f"Added to .saarathi/lessons.md: {lesson.text}")
+
+
+@lessons_app.command("reject")
+def lessons_reject(lesson_id: str) -> None:
+    """Drop a proposal. It is kept in the state database for the audit trail only."""
+    project = _project()
+    try:
+        project.store.decide_lesson(lesson_id, status="rejected", actor="user")
+    except (SaarathiError, ValueError) as exc:
+        _fail(exc if isinstance(exc, SaarathiError) else SaarathiError(str(exc)))
+    typer.echo(f"Rejected {lesson_id}.")
 
 
 @escalations_app.callback()

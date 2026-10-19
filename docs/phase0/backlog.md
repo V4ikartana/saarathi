@@ -34,6 +34,6 @@ Each item has a testable definition of done (DoD). `→` lists dependencies. Sta
 | P4 | Antigravity CLI adapter (verify non-TTY `-p` first) | S5 | Live probe or documented disablement |  |
 | P5 | Escalation protocol + operations role behind `OperationsAgent` | S11 | Scenario E: contract change pauses and needs lead approval to supersede the ADR | Scenario E done (ADR-0010, deterministic operations; schemas verified live). Model-backed operations summaries still open |
 | P6 | Rate-limit backoff and provider exhaustion handling | S11 | Scenario D passes | Done (offline; live limit errors not yet observed) |
-| P7 | Memory proposals → lessons promotion with approval | S9 | Unapproved proposals never reach `lessons.md` |  |
-| P8 | CI (Linux/macOS), secret scanning, dependency audit, release packaging | – | Green CI on PRs | CI, gitleaks and pip-audit green on GitHub (private repo, 2026-10-19); release packaging open |
+| P7 | Memory proposals → lessons promotion with approval | S9 | Unapproved proposals never reach `lessons.md` | Done (only verified attempts propose; `saarathi lessons approve|reject`; approved lessons cited in later task context) |
+| P8 | CI (Linux/macOS), secret scanning, dependency audit, release packaging | – | Green CI on PRs | Done: CI, gitleaks, pip-audit and wheel build + smoke test on GitHub; PyPI publishing not set up |
 | P9 | Windows support (locking, process groups) | S12 | Test suite green on Windows |  |

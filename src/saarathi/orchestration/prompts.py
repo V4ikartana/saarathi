@@ -356,9 +356,17 @@ security problems. List concrete concerns. Saarathi will show your verdict to a 
 
 
 def compile_task_context(
-    plan: Plan, task: PlannedTask, adrs: Sequence[tuple[str, str, str]], max_chars: int = 30_000
+    plan: Plan,
+    task: PlannedTask,
+    adrs: Sequence[tuple[str, str, str]],
+    max_chars: int = 30_000,
+    lessons: tuple[str, str, str] | None = None,
 ) -> tuple[str, str]:
-    """Return (context_snapshot_id, text). ``adrs`` is [(path, version, content)] of accepted ADRs."""
+    """Return (context_snapshot_id, text). ``adrs`` is [(path, version, content)] of accepted ADRs.
+
+    ``lessons`` is (path, version, content) of approved lessons. They were approved by a person but
+    written by agents, so they are passed as data and may be outdated.
+    """
     parts = [
         "### Plan summary",
         plan.summary,
@@ -372,6 +380,10 @@ def compile_task_context(
     for path, version, content in adrs:
         cites.append(f"- {path} @ {version[:12]}")
         parts += [f"### {path}", content]
+    if lessons:
+        path, version, content = lessons
+        cites.append(f"- {path} @ {version[:12]}")
+        parts += ["### Approved lessons from earlier runs (may be outdated)", untrusted(path, content)]
     parts += ["### Sources", *cites] if cites else []
     text = "\n".join(parts)
     if len(text) > max_chars:

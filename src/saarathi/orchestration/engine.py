@@ -38,6 +38,7 @@ from saarathi.core.errors import SaarathiError
 from saarathi.core.states import RUN_TERMINAL, TASK_IN_FLIGHT, RunState, TaskState
 from saarathi.git.workspace import scope_violations
 from saarathi.integrations.model import DataSource, IntegrationSnapshot
+from saarathi.memory.lessons import approved_lessons
 from saarathi.orchestration import prompts
 from saarathi.orchestration.handoff import Handoff, dependency_results, plan_handoff
 from saarathi.orchestration.lead import LeadAgent, LeadError
@@ -269,7 +270,9 @@ class Engine:
         self.p.memory.write("architecture.md", architecture, expected_version=current.version if current else None)
         packets = []
         for task in plan.tasks:
-            snapshot, context = prompts.compile_task_context(plan, task, accepted)
+            snapshot, context = prompts.compile_task_context(
+                plan, task, accepted, lessons=approved_lessons(self.p.memory)
+            )
             self.p.memory.write_new_or_same(f"tasks/{run_id}/{task.id}.context.md", context)
             packet = TaskPacket(
                 task_id=task.id,
@@ -822,6 +825,15 @@ class Engine:
         )
         if all_passed(assessment.verification, len(commands)):
             assessment.status = "succeeded"
+            if assessment.worker_report and assessment.worker_report.memory_proposals:
+                self.p.store.propose_lessons(
+                    run_id,
+                    task_id,
+                    attempt.id,
+                    source=f"{attempt.adapter}:{attempt.model}",
+                    texts=assessment.worker_report.memory_proposals,
+                    actor=ACTOR,
+                )
             self.p.store.finish_attempt(
                 attempt.id,
                 status="finished",

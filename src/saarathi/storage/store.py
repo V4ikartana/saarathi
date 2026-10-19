@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from saarathi.core.contracts import ClarificationQuestion, RoutingDecision, TaskPacket
-from saarathi.core.errors import NotFound
+from saarathi.core.errors import InvalidTransition, NotFound
 from saarathi.core.states import (
     RUN_TERMINAL,
     RunState,
@@ -107,6 +108,19 @@ class EscalationRecord:
     checkpoint: str | None
     verdict: dict[str, Any] | None
     resolution: str | None
+    created_at: str
+
+
+@dataclass(frozen=True)
+class LessonProposal:
+    id: str
+    run_id: str
+    task_id: str
+    attempt_id: str
+    source: str
+    text: str
+    status: str  # proposed | approved | rejected
+    decided_by: str | None
     created_at: str
 
 
@@ -835,5 +849,80 @@ class StateStore:
             checkpoint=row["checkpoint"],
             verdict=_loads(row["verdict_json"]),
             resolution=row["resolution"],
+            created_at=row["created_at"],
+        )
+
+    # ------------------------------------------------------------------ lesson proposals (P7)
+
+    MAX_LESSONS_PER_ATTEMPT = 10
+    MAX_LESSON_CHARS = 500
+
+    def propose_lessons(
+        self, run_id: str, task_id: str, attempt_id: str, *, source: str, texts: Sequence[str], actor: str
+    ) -> list[LessonProposal]:
+        """Record worker proposals from a verified attempt. Duplicates within a run are ignored."""
+        created: list[str] = []
+        with self.transaction() as conn:
+            for raw in list(texts)[: self.MAX_LESSONS_PER_ATTEMPT]:
+                text = " ".join(self._redact(raw).split())[: self.MAX_LESSON_CHARS]
+                if not text:
+                    continue
+                digest = hashlib.sha256(text.lower().encode()).hexdigest()
+                lesson_id = new_id("les")
+                cur = conn.execute(
+                    "INSERT OR IGNORE INTO lesson_proposals (id, run_id, task_id, attempt_id, source, text, digest,"
+                    " status, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (lesson_id, run_id, task_id, attempt_id, source, text, digest, "proposed", utcnow()),
+                )
+                if cur.rowcount:
+                    created.append(lesson_id)
+            if created:
+                self.append_event("lessons.proposed", {"ids": created}, actor=actor, run_id=run_id, task_id=task_id)
+        return [self.get_lesson(i) for i in created]
+
+    def get_lesson(self, lesson_id: str) -> LessonProposal:
+        row = self._conn.execute("SELECT * FROM lesson_proposals WHERE id = ?", (lesson_id,)).fetchone()
+        if row is None:
+            raise NotFound(f"lesson proposal {lesson_id} not found")
+        return self._lesson(row)
+
+    def lessons(self, *, status: str | None = None) -> list[LessonProposal]:
+        sql, args = "SELECT * FROM lesson_proposals", []
+        if status:
+            sql += " WHERE status = ?"
+            args.append(status)
+        return [self._lesson(r) for r in self._conn.execute(sql + " ORDER BY created_at, rowid", args)]
+
+    def decide_lesson(self, lesson_id: str, *, status: str, actor: str, text: str | None = None) -> LessonProposal:
+        if status not in ("approved", "rejected"):
+            raise ValueError(f"invalid lesson status {status}")
+        with self.transaction() as conn:
+            lesson = self.get_lesson(lesson_id)
+            if lesson.status != "proposed":
+                raise InvalidTransition(f"lesson {lesson_id} is already {lesson.status}")
+            conn.execute(
+                "UPDATE lesson_proposals SET status=?, text=?, decided_by=?, decided_at=? WHERE id=?",
+                (status, text if text is not None else lesson.text, actor, utcnow(), lesson_id),
+            )
+            self.append_event(
+                f"lesson.{status}",
+                {"lesson_id": lesson_id, "edited": text is not None},
+                actor=actor,
+                run_id=lesson.run_id,
+                task_id=lesson.task_id,
+            )
+        return self.get_lesson(lesson_id)
+
+    @staticmethod
+    def _lesson(row: sqlite3.Row) -> LessonProposal:
+        return LessonProposal(
+            id=row["id"],
+            run_id=row["run_id"],
+            task_id=row["task_id"],
+            attempt_id=row["attempt_id"],
+            source=row["source"],
+            text=row["text"],
+            status=row["status"],
+            decided_by=row["decided_by"],
             created_at=row["created_at"],
         )

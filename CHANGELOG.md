@@ -44,6 +44,11 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 - v0.1 scope is subscription-only (ADR-0011): `policy validate` rejects API and hybrid modes and enabled API
   billing.
 
+- Packaging: version single-sourced from `saarathi.__init__`; source distribution limited to code, tests, docs
+  and examples; CI builds the wheel and smoke-tests it in a clean environment.
+- Lessons (P7): workers' memory proposals from verified attempts are recorded as proposals; `saarathi lessons
+  approve|reject` decides, approved lessons go to `.saarathi/lessons.md` and into later tasks' context.
+
 ### Fixed
 - Unblocking a task on resume no longer makes it READY before its dependencies have succeeded.
 - Dependent tasks now start from their dependencies' verified commits instead of the bare run base; conflicting

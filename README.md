@@ -65,6 +65,7 @@ examples/health-widget/demo.sh codex-only       # hosts without Claude Code
 | `saarathi answer Q1 "..."` | Answer a clarification question |
 | `saarathi approve` | Approve the plan, an escalation's ADR change, or the final review |
 | `saarathi escalations` / `escalations reject ID` | Worker escalations, the lead's verdicts and checkpoints |
+| `saarathi lessons` / `lessons approve ID [--text ...]` / `lessons reject ID` | Lessons proposed by verified work; only approved ones are kept and reused |
 | `saarathi resume` | Continue after a pause, crash or answer |
 | `saarathi pause` / `cancel` | Stop dispatching / cancel a run |
 | `saarathi review` / `report [--json]` | Evidence, lead verdict, diff summary, final report |

@@ -223,6 +223,23 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX escalations_run ON escalations(run_id, status);
     """,
+    # 4: lesson proposals (P7). Proposals stay out of lessons.md until a person approves them.
+    """
+    CREATE TABLE lesson_proposals (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL REFERENCES runs(id),
+        task_id TEXT NOT NULL,
+        attempt_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        text TEXT NOT NULL,
+        digest TEXT NOT NULL,
+        status TEXT NOT NULL,
+        decided_by TEXT,
+        created_at TEXT NOT NULL,
+        decided_at TEXT,
+        UNIQUE (run_id, digest)
+    );
+    """,
 )
 
 
