@@ -46,6 +46,7 @@ from saarathi.storage.store import AttemptRecord, TaskRecord, utcnow
 from saarathi.verification.verifier import all_passed, run_verification
 
 ACTOR = "engine"
+TASK_BASE_PREFIX = "task_base:"
 LEASE_TTL = timedelta(minutes=2)
 HEARTBEAT_SECONDS = 20.0
 GRANT_PREFIX = "grant:"  # control key prefix for integration approvals granted in a run
@@ -455,6 +456,8 @@ class Engine:
                 return
             if task.state is not TaskState.READY:
                 continue
+            if self._prepare_task_base(run_id, task) is None:
+                continue
             req = self._routing_request(run_id, task)
             decision = route(req, models, self.p.policy, self._load(), self._snapshot_for(req))
             if decision.chosen is None and decision.busy:
@@ -538,14 +541,68 @@ class Engine:
         attempts = self.p.store.attempts(run_id, task_id)
         return attempts[-1] if attempts else None
 
+    def _task_base(self, run_id: str, task_id: str) -> str:
+        """Commit a task's worktree starts from: the run base, or its dependencies' combined work."""
+        stored = self.p.store.get_control(run_id, f"{TASK_BASE_PREFIX}{task_id}")
+        if stored:
+            return stored
+        run = self.p.store.get_run(run_id)
+        assert run.base_commit
+        return run.base_commit
+
+    def _prepare_task_base(self, run_id: str, task: TaskRecord) -> str | None:
+        """Build (once) the starting commit for a task with dependencies; None if they cannot be combined.
+
+        One dependency: its verified commit. Several: a merge of their verified commits on
+        ``saarathi/<run>/<task>-base``. The result is persisted so retries and recovery start from the
+        same commit. A merge conflict blocks the task instead of letting a worker resolve it silently.
+        """
+        key = f"{TASK_BASE_PREFIX}{task.id}"
+        if not task.packet.dependencies or self.p.store.get_control(run_id, key):
+            return self._task_base(run_id, task.id)
+        tasks = {t.id: t for t in self.p.store.tasks(run_id)}
+        commits = []
+        for dep in sorted(task.packet.dependencies):
+            commit = (tasks[dep].result or {}).get("commit")
+            if not commit:
+                self.p.store.transition_task(
+                    run_id,
+                    task.id,
+                    TaskState.BLOCKED,
+                    actor=ACTOR,
+                    blocked_reason=f"dependency {dep} has no verified commit",
+                )
+                return None
+            commits.append((dep, str(commit)))
+        if len(commits) == 1:
+            base = commits[0][1]
+        else:
+            path = self.p.worktree_root(run_id) / f"{task.id}-base"
+            branch = f"saarathi/{run_id}/{task.id}-base"
+            self.p.git.ensure_worktree(path, branch, commits[0][1])
+            self.p.git.reset_worktree(path, commits[0][1])
+            merge = self.p.git.merge_branches(
+                path, [(commit, f"Combine {dep} for {task.id}") for dep, commit in commits[1:]]
+            )
+            if not merge.ok:
+                reason = (
+                    f"dependencies conflict when combined for {task.id}: "
+                    f"{merge.conflict_branch} {list(merge.conflict_files)}"
+                )
+                self._checkpoint(run_id, "dependency-conflict", reason, [reason])
+                self.p.store.transition_task(run_id, task.id, TaskState.BLOCKED, actor=ACTOR, blocked_reason=reason)
+                return None
+            base = self.p.git.head(cwd=path)
+            self.p.git.remove_worktree(path)
+        self.p.store.set_control(run_id, key, base, actor=ACTOR)
+        return base
+
     def _worktree(self, run_id: str, task_id: str) -> tuple[Path, str]:
         return self.p.worktree_root(run_id) / task_id, f"saarathi/{run_id}/{task_id}"
 
     async def _attempt(self, run_id: str, task: TaskRecord, model: ModelDescriptor, decision_id: str) -> None:
         store, git = self.p.store, self.p.git
-        run = store.get_run(run_id)
-        assert run.base_commit
-        base = run.base_commit
+        base = self._task_base(run_id, task.id)
         if task.packet.integrations and not self._integration_recheck(run_id, task, model):
             return
         path, branch = self._worktree(run_id, task.id)
@@ -717,10 +774,8 @@ class Engine:
         self, run_id: str, task_id: str, attempt: AttemptRecord, assessment: WorkerResult, kind: ErrorKind
     ) -> None:
         store = self.p.store
-        run = store.get_run(run_id)
-        assert run.base_commit
         path, _ = self._worktree(run_id, task_id)
-        self.p.git.reset_worktree(path, run.base_commit)
+        self.p.git.reset_worktree(path, attempt.base_commit)
         store.finish_attempt(
             attempt.id,
             status="finished",
@@ -773,7 +828,6 @@ class Engine:
     def _reconcile(self, run_id: str) -> None:
         """Repair tasks left in flight by a previous engine (we hold the lock, so it is gone)."""
         store, git = self.p.store, self.p.git
-        run = store.get_run(run_id)
         for task in store.tasks(run_id):
             if task.state not in TASK_IN_FLIGHT:
                 continue
@@ -781,7 +835,7 @@ class Engine:
             if task.state is TaskState.LEASED and (attempt is None or attempt.status != "running"):
                 store.transition_task(run_id, task.id, TaskState.READY, actor=ACTOR, reason="orphaned lease released")
                 continue
-            assert attempt is not None and run.base_commit
+            assert attempt is not None
             if attempt.pid and attempt.pid != os.getpid() and process_alive(attempt.pid):
                 kill_process_group(attempt.pid, signal.SIGTERM)
                 store.append_event(
@@ -793,7 +847,7 @@ class Engine:
                 )
             path, _ = self._worktree(run_id, task.id)
             committed = (path / ".git").exists() and git.find_commit_with_trailer(
-                path, run.base_commit, f"Saarathi-Attempt: {attempt.id}"
+                path, attempt.base_commit, f"Saarathi-Attempt: {attempt.id}"
             )
             if committed:
                 if task.state is TaskState.RUNNING:
@@ -813,7 +867,7 @@ class Engine:
                 )
                 continue
             if (path / ".git").exists():
-                git.reset_worktree(path, run.base_commit)
+                git.reset_worktree(path, attempt.base_commit)
             store.finish_attempt(attempt.id, status="abandoned", outcome="orphaned", result=None, actor=ACTOR)
             if task.state is TaskState.VERIFYING:
                 # verifying without a commit should not happen; treat as a failed attempt to stay safe
