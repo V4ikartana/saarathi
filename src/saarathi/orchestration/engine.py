@@ -14,6 +14,7 @@ import json
 import os
 import signal
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,6 +22,7 @@ from typing import Any, Protocol
 
 from saarathi.core.contracts import (
     Complexity,
+    EscalationVerdict,
     IntakeResult,
     ModelDescriptor,
     Plan,
@@ -39,16 +41,18 @@ from saarathi.integrations.model import DataSource, IntegrationSnapshot
 from saarathi.orchestration import prompts
 from saarathi.orchestration.handoff import Handoff, dependency_results, plan_handoff
 from saarathi.orchestration.lead import LeadAgent, LeadError
+from saarathi.orchestration.operations import DeterministicOperations, EscalationContext, OperationsAgent
 from saarathi.orchestration.project import Project
 from saarathi.providers.base import ErrorKind, Invocation, InvocationMode
 from saarathi.reporting.report import write_report
 from saarathi.routing.router import RoutingRequest, RuntimeLoad, resolve_lead, route
 from saarathi.runtime.process import kill_process_group, process_alive
 from saarathi.security.redaction import Redactor
-from saarathi.storage.store import AttemptRecord, TaskRecord, utcnow
+from saarathi.storage.store import AttemptRecord, EscalationRecord, TaskRecord, utcnow
 from saarathi.verification.verifier import all_passed, run_verification
 
 ACTOR = "engine"
+GUIDANCE_PREFIX = "guidance:"
 TASK_BASE_PREFIX = "task_base:"
 LEASE_TTL = timedelta(minutes=2)
 HEARTBEAT_SECONDS = 20.0
@@ -99,7 +103,10 @@ class Engine:
         self.accept_defaults = accept_defaults
         self.owner = f"engine-{os.getpid()}-{uuid.uuid4().hex[:6]}"
         self._running: dict[asyncio.Task[None], _Running] = {}
-        self._cooldown_until: str | None = None  # earliest end of a provider cooldown a READY task waits for
+        self._cooldown_until: str | None = None
+        self.operations: OperationsAgent = (
+            DeterministicOperations()
+        )  # earliest end of a provider cooldown a READY task waits for
 
     # ================================================================== entry points
 
@@ -349,6 +356,8 @@ class Engine:
         if all(t.state is TaskState.SUCCEEDED for t in tasks):
             self.p.store.transition_run(run_id, RunState.VERIFYING, actor=ACTOR)
             return True
+        if self.p.store.escalations(run_id, status="open"):
+            return await self._resolve_escalations(run_id)
         if self._cooldown_until and any(t.state is TaskState.READY for t in tasks):
             delay = (datetime.fromisoformat(self._cooldown_until) - datetime.now(UTC)).total_seconds()
             self.io.info(f"Waiting {max(delay, 0):.0f}s for a provider cooldown to end.")
@@ -665,7 +674,11 @@ class Engine:
         context_doc = self.p.memory.read(f"tasks/{run_id}/{task.id}.context.md")
         handoff = self._handoff(run_id, task.id, decision)
         prompt = prompts.worker_prompt(
-            task.packet, context_doc.content if context_doc else "", feedback, handoff.inputs
+            task.packet,
+            context_doc.content if context_doc else "",
+            feedback,
+            handoff.inputs,
+            guidance=store.get_control(run_id, f"{GUIDANCE_PREFIX}{task.id}"),
         )
         before = git.checkout_snapshot()
         adapter = self.p.registry.get(model.adapter)
@@ -717,6 +730,19 @@ class Engine:
         changed = git.stage_and_list_changes(path, base, self.p.policy.execution.ignored_artifacts)
         assessment.changed_files = changed
         assessment.scope_violations = scope_violations(changed, task.packet.allowed_paths)
+
+        report = assessment.worker_report
+        if (
+            result.ok
+            and report
+            and report.status == "blocked"
+            and report.escalations
+            and not assessment.checkout_modified
+        ):
+            diff_stat = git.git("diff", "--cached", "--stat", base, cwd=path)
+            git.reset_worktree(path, base)
+            self._raise_escalation(run_id, task, attempt, assessment, diff_stat)
+            return
 
         problem = None
         if not result.ok:
@@ -897,6 +923,222 @@ class Engine:
             actor=ACTOR,
             reason=f"{health.adapter} {health.state.replace('_', ' ')} until {health.until}",
             result=result,
+        )
+
+    # ------------------------------------------------------------------ escalations (Scenario E)
+
+    def _raise_escalation(
+        self, run_id: str, task: TaskRecord, attempt: AttemptRecord, assessment: WorkerResult, diff_stat: str
+    ) -> None:
+        """Pause a task whose worker hit a conflict with the plan. Dependents wait; independent tasks continue."""
+        store = self.p.store
+        report = assessment.worker_report
+        assert report is not None
+        first = report.escalations[0]
+        payload = {**assessment.model_dump(mode="json"), "attempt_diff_stat": diff_stat}
+        assessment.failure_reason = f"escalated ({first.kind}): {first.summary}"
+        store.finish_attempt(attempt.id, status="finished", outcome="escalated", result=payload, actor=ACTOR)
+        earlier = store.escalations(run_id, task_id=task.id)
+        esc = store.create_escalation(
+            run_id, task.id, attempt.id, kind=first.kind, summary=first.summary, report=payload, actor=ACTOR
+        )
+        if len(earlier) >= self.p.policy.execution.max_escalations_per_task:
+            store.update_escalation(
+                esc.id, status="stopped", actor=ACTOR, resolution="escalation limit reached; a person must decide"
+            )
+            reason = f"escalated {len(earlier) + 1} times (max_escalations_per_task); last: {first.summary}"
+        else:
+            reason = f"escalated as {esc.id} ({first.kind}): {first.summary}"
+        store.transition_task(
+            run_id,
+            task.id,
+            TaskState.BLOCKED,
+            actor=ACTOR,
+            blocked_reason=reason,
+            result=assessment.model_dump(mode="json"),
+        )
+
+    def _dependents(self, run_id: str, task_id: str) -> list[TaskRecord]:
+        tasks = self.p.store.tasks(run_id)
+        found: dict[str, TaskRecord] = {}
+        frontier = {task_id}
+        while frontier:
+            nxt = {t.id for t in tasks if frontier & set(t.packet.dependencies) and t.id not in found}
+            found.update({t.id: t for t in tasks if t.id in nxt})
+            frontier = nxt
+        return sorted(found.values(), key=lambda t: t.id)
+
+    def _escalation_checkpoint(self, run_id: str, esc: EscalationRecord) -> str:
+        task = self.p.store.get_task(run_id, esc.task_id)
+        report = WorkerReport.model_validate(esc.report["worker_report"])
+        adrs = []
+        for adr in self.p.memory.list_adrs():
+            doc = self.p.memory.read(adr.path)
+            decision = doc.content.split("## Decision", 1)[-1] if doc else ""
+            adrs.append((adr.number, adr.title, adr.status, decision))
+        attempt = self.p.store.get_attempt(esc.attempt_id)
+        ctx = EscalationContext(
+            escalation_id=esc.id,
+            packet=task.packet,
+            worker=f"{attempt.adapter}:{attempt.model}",
+            escalation=report.escalations[0],
+            worker_summary=report.summary,
+            attempt_diff_stat=str(esc.report.get("attempt_diff_stat", "")),
+            adrs=adrs,
+            affected=[(t.id, t.packet.title, t.state.value) for t in self._dependents(run_id, esc.task_id)],
+            previous=[
+                f"{e.id} {e.kind}: {e.summary} -> {e.status}"
+                for e in self.p.store.escalations(run_id, task_id=esc.task_id)
+                if e.id != esc.id
+            ],
+        )
+        return self.operations.escalation_checkpoint(ctx)
+
+    async def _resolve_escalations(self, run_id: str) -> bool:
+        """Send each open escalation to the lead. Returns True if execution can continue without a person."""
+        lead = self._lead(run_id)
+        if lead is None:
+            return False
+        run = self.p.store.get_run(run_id)
+        assert run.base_commit
+        workspace = self._lead_workspace(run_id, run.base_commit)
+        needs_person: list[str] = []
+        for esc in self.p.store.escalations(run_id, status="open"):
+            checkpoint = self._escalation_checkpoint(run_id, esc)
+            stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            self.p.memory.write_new_or_same(f"checkpoints/{run_id}-{stamp}-escalation-{esc.id}.md", checkpoint)
+            try:
+                verdict = await lead.escalation(checkpoint, workspace)
+            except LeadError as exc:
+                self.p.store.update_escalation(esc.id, status="open", actor=ACTOR, checkpoint=checkpoint)
+                self._pause(run_id, f"lead could not review escalation {esc.id}: {exc}")
+                return False
+            problem = self._invalid_supersession(verdict)
+            if problem:
+                verdict = verdict.model_copy(
+                    update={"decision": "stop", "rationale": f"{verdict.rationale} ({problem})"}
+                )
+            self.p.store.append_event(
+                "lead.escalation_reviewed",
+                {"escalation_id": esc.id, "decision": verdict.decision},
+                actor="lead",
+                run_id=run_id,
+                task_id=esc.task_id,
+            )
+            if verdict.decision == "retry_with_guidance":
+                self.p.store.update_escalation(
+                    esc.id,
+                    status="applied",
+                    actor="lead",
+                    checkpoint=checkpoint,
+                    verdict=verdict.model_dump(),
+                    resolution="retry with lead guidance",
+                )
+                self._apply_guidance(run_id, esc.task_id, verdict.guidance)
+                self._unblock(run_id, [esc.task_id, *(t.id for t in self._dependents(run_id, esc.task_id))], "lead")
+            elif verdict.decision == "supersede_adr":
+                self.p.store.update_escalation(
+                    esc.id,
+                    status="awaiting_approval",
+                    actor="lead",
+                    checkpoint=checkpoint,
+                    verdict=verdict.model_dump(),
+                )
+                needs_person.append(
+                    f"{esc.id}: lead proposes superseding ADR-{verdict.adr.supersedes:04d} with "
+                    f"'{verdict.adr.title}' - review with `saarathi escalations`, then `saarathi approve`"
+                )
+            else:
+                self.p.store.update_escalation(
+                    esc.id,
+                    status="stopped",
+                    actor="lead",
+                    checkpoint=checkpoint,
+                    verdict=verdict.model_dump(),
+                    resolution=verdict.rationale,
+                )
+                needs_person.append(f"{esc.id}: lead asks for a person: {verdict.rationale}")
+        if needs_person:
+            self._pause(run_id, "; ".join(needs_person))
+            return False
+        return True
+
+    def _invalid_supersession(self, verdict: EscalationVerdict) -> str | None:
+        if verdict.decision != "supersede_adr":
+            return None
+        target = next((a for a in self.p.memory.list_adrs() if a.number == verdict.adr.supersedes), None)
+        if target is None or target.status != "Accepted":
+            return f"ADR-{verdict.adr.supersedes or 0:04d} is not an accepted decision of this project"
+        return None
+
+    def _apply_guidance(self, run_id: str, task_id: str, guidance: str) -> None:
+        key = f"{GUIDANCE_PREFIX}{task_id}"
+        current = self.p.store.get_control(run_id, key)
+        text = f"{current}\n\n{guidance}".strip() if current else guidance.strip()
+        self.p.store.set_control(run_id, key, text, actor="lead")
+
+    def _unblock(self, run_id: str, task_ids: Sequence[str], actor: str) -> list[str]:
+        tasks = {t.id: t for t in self.p.store.tasks(run_id)}
+        revived = []
+        for tid in sorted(set(task_ids)):
+            t = tasks[tid]
+            if t.state is not TaskState.BLOCKED:
+                continue
+            deps_done = all(tasks[d].state is TaskState.SUCCEEDED for d in t.packet.dependencies)
+            target = TaskState.READY if deps_done else TaskState.PENDING
+            self.p.store.transition_task(run_id, tid, target, actor=actor, reason="unblocked")
+            revived.append(tid)
+        return revived
+
+    def pending_approval(self, run_id: str) -> EscalationRecord | None:
+        waiting = self.p.store.escalations(run_id, status="awaiting_approval")
+        return waiting[0] if waiting else None
+
+    def approve_escalation(self, run_id: str, *, actor: str = "user") -> str:
+        """Apply the lead's approved ADR change, then let the paused tasks continue. Returns the new ADR path."""
+        run = self.p.store.get_run(run_id)
+        esc = self.pending_approval(run_id)
+        if esc is None or run.state is not RunState.PAUSED:
+            raise SaarathiError("no escalation is awaiting approval")
+        verdict = EscalationVerdict.model_validate(esc.verdict)
+        problem = self._invalid_supersession(verdict)
+        if problem:
+            raise SaarathiError(f"cannot apply {esc.id}: {problem}")
+        assert verdict.adr.supersedes is not None
+        old = next(a for a in self.p.memory.list_adrs() if a.number == verdict.adr.supersedes)
+        today = datetime.now(UTC).date().isoformat()
+        new = self.p.memory.add_adr(
+            verdict.adr.title, verdict.adr.context, verdict.adr.decision, date=today, supersedes=old.number
+        )
+        new = self.p.memory.set_adr_status(new.number, "Accepted", expected_version=new.version)
+        self.p.memory.set_adr_status(old.number, f"Superseded by ADR-{new.number:04d}", expected_version=old.version)
+        doc = self.p.memory.read(new.path)
+        self._apply_guidance(
+            run_id,
+            esc.task_id,
+            f"{verdict.guidance}\n\nNew accepted decision {new.path}:\n{doc.content if doc else verdict.adr.decision}",
+        )
+        self.p.store.update_escalation(
+            esc.id, status="applied", actor=actor, resolution=f"approved; {new.path} supersedes {old.path}"
+        )
+        self.p.store.append_event(
+            "adr.superseded",
+            {"old": old.path, "new": new.path, "escalation_id": esc.id},
+            actor=actor,
+            run_id=run_id,
+            task_id=esc.task_id,
+        )
+        if not self.pending_approval(run_id):
+            self.resume(run_id)
+            self._unblock(run_id, [esc.task_id, *(t.id for t in self._dependents(run_id, esc.task_id))], actor)
+        return new.path
+
+    def reject_escalation(self, run_id: str, esc_id: str, *, actor: str = "user") -> None:
+        esc = self.p.store.get_escalation(esc_id)
+        if esc.run_id != run_id or esc.status not in ("awaiting_approval", "open"):
+            raise SaarathiError(f"{esc_id} is not open or awaiting approval")
+        self.p.store.update_escalation(
+            esc_id, status="rejected", actor=actor, resolution="rejected by user; the task stays blocked"
         )
 
     def _can_wait_for_cooldown(self, decision: RoutingDecision) -> bool:

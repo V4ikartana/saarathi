@@ -36,6 +36,11 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   Limit retries are bounded per task and do not use the failure budget. New `saarathi providers status|reset`;
   `models list` and `doctor` show active limits.
 
+- Escalation protocol (Scenario E, ADR-0010): workers stop and escalate conflicts with accepted decisions; the
+  task and its dependents pause while independent work continues; an evidence-backed checkpoint goes to the
+  lead, whose `retry_with_guidance` applies automatically while `supersede_adr` waits for `saarathi approve`
+  before any ADR changes. Bounded per task. New `saarathi escalations [reject ID]`.
+
 ### Fixed
 - Unblocking a task on resume no longer makes it READY before its dependencies have succeeded.
 - Dependent tasks now start from their dependencies' verified commits instead of the bare run base; conflicting

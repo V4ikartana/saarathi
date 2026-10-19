@@ -100,6 +100,8 @@ class FakeAdapter(ProviderAdapter):
         usage = Usage(input_tokens=100, output_tokens=20, reported_model=inv.model, cost_usd=None)
         if inv.task_id is None:
             response = script.get("complete", {}).get(inv.purpose)
+            if response == []:
+                response = None
             if response is None:
                 return InvocationResult(
                     ok=False,

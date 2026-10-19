@@ -224,6 +224,29 @@ def topological_order(tasks: list[PlannedTask]) -> list[str]:
     return order
 
 
+class AdrChange(Strict):
+    title: str
+    context: str
+    decision: str
+    supersedes: int | None
+
+
+class EscalationVerdict(Strict):
+    """The lead's ruling on an escalation. Superseding an ADR still needs a person's approval."""
+
+    decision: Literal["retry_with_guidance", "supersede_adr", "stop"]
+    rationale: str = Field(min_length=1)
+    guidance: str
+    adr: AdrChange
+
+    @model_validator(mode="after")
+    def _adr_when_superseding(self) -> EscalationVerdict:
+        complete = bool(self.adr.title.strip() and self.adr.decision.strip() and self.adr.supersedes)
+        if self.decision == "supersede_adr" and not complete:
+            raise ValueError("supersede_adr needs adr.title, adr.decision and adr.supersedes")
+        return self
+
+
 class ReviewVerdict(Strict):
     decision: Literal["approve", "changes_requested"]
     summary: str
@@ -263,6 +286,15 @@ class NamedOutput(Strict):
     value: str = Field(max_length=20_000)
 
 
+class Escalation(Strict):
+    """A worker's claim that the task cannot be done as planned without a decision above its level."""
+
+    kind: Literal["contract_change", "scope_change", "ambiguous_requirement", "security_concern"]
+    summary: str = Field(min_length=1, max_length=2_000)
+    evidence: str = Field(max_length=8_000)
+    proposed_change: str = Field(max_length=4_000)
+
+
 class WorkerReport(Strict):
     """What a worker says about its own work. Advisory only; never evidence on its own."""
 
@@ -275,6 +307,8 @@ class WorkerReport(Strict):
     memory_proposals: list[str]
     # Results for dependent tasks. Saarathi filters them by policy before anyone else sees them.
     outputs: list[NamedOutput] = Field(default_factory=list)
+    # Only with status "blocked": the conflict the lead must decide. Never a reason to work around the plan.
+    escalations: list[Escalation] = Field(default_factory=list)
 
 
 class Usage(Strict):

@@ -57,6 +57,10 @@ app.add_typer(models_app, name="models")
 app.add_typer(policy_app, name="policy")
 app.add_typer(route_app, name="route")
 providers_app = typer.Typer(help="Provider limits and cooldowns.", no_args_is_help=True)
+escalations_app = typer.Typer(
+    help="Escalations raised by workers and the lead's verdicts.", invoke_without_command=True
+)
+app.add_typer(escalations_app, name="escalations")
 app.add_typer(providers_app, name="providers")
 integrations_app = typer.Typer(
     help="Integration and account registry: which worker may do what, on which account.", no_args_is_help=True
@@ -348,6 +352,50 @@ def _active_limits(project: Project) -> dict[str, str]:
     }
 
 
+@escalations_app.callback()
+def escalations_list(
+    ctx: typer.Context,
+    run_id: Annotated[str | None, typer.Option("--run")] = None,
+    json_out: JsonFlag = False,
+) -> None:
+    """List escalations with the lead's verdict and the checkpoint sent to it."""
+    if ctx.invoked_subcommand:
+        return
+    project = _project()
+    items = project.store.escalations(_run_id(project, run_id))
+    if json_out:
+        typer.echo(json.dumps([{k: v for k, v in e.__dict__.items() if k != "report"} for e in items], indent=2))
+        return
+    if not items:
+        typer.echo("No escalations.")
+    for e in items:
+        typer.echo(f"{e.id} {e.task_id} {e.kind} [{e.status}] {e.summary}")
+        verdict = e.verdict or {}
+        if verdict:
+            typer.echo(f"   lead: {verdict['decision']} - {verdict['rationale']}")
+            adr = verdict.get("adr") or {}
+            if verdict["decision"] == "supersede_adr":
+                typer.echo(f"   proposed: ADR replacing ADR-{adr['supersedes']:04d}: {adr['title']}")
+                typer.echo(f"   decision: {adr['decision']}")
+            if verdict.get("guidance"):
+                typer.echo(f"   guidance: {verdict['guidance']}")
+        if e.resolution:
+            typer.echo(f"   resolution: {e.resolution}")
+    if any(e.status == "awaiting_approval" for e in items):
+        typer.echo("Approve with `saarathi approve`, or reject with `saarathi escalations reject <id>`.")
+
+
+@escalations_app.command("reject")
+def escalations_reject(escalation_id: str, run_id: Annotated[str | None, typer.Option("--run")] = None) -> None:
+    """Reject the lead's proposed change. The task stays blocked; the accepted ADR is unchanged."""
+    project = _project()
+    try:
+        Engine(project).reject_escalation(_run_id(project, run_id), escalation_id)
+    except SaarathiError as exc:
+        _fail(exc)
+    typer.echo(f"Rejected {escalation_id}. The task stays blocked; `resume` retries it, `cancel` ends the run.")
+
+
 @providers_app.command("status")
 def providers_status(json_out: JsonFlag = False) -> None:
     """Show provider cooldowns recorded after rate-limit or quota errors."""
@@ -447,7 +495,7 @@ def approve(
     non_interactive: NonInteractive = False,
     json_out: JsonFlag = False,
 ) -> None:
-    """Approve the pending plan (then execute) or the final review (then write the report)."""
+    """Approve the pending plan, an escalation's ADR change, or the final review."""
     project = _project()
     rid = _run_id(project, run_id)
     engine = Engine(project, ConsoleIO(not non_interactive and not json_out))
@@ -455,6 +503,14 @@ def approve(
     try:
         if state is RunState.AWAITING_PLAN_APPROVAL:
             engine.approve_plan(rid)
+            _drive(project, engine, rid, json_out)
+        elif state is RunState.PAUSED and engine.pending_approval(rid):
+            new_adr = engine.approve_escalation(rid)
+            if not json_out:
+                typer.echo(f"Recorded {new_adr}; the escalated task continues with the lead's guidance.", err=True)
+            if project.store.get_run(rid).state is RunState.PAUSED:
+                emit(_status(project, rid), json_out, _print_status)  # more escalations wait
+                raise typer.Exit(ExitCode.AWAITING_INPUT)
             _drive(project, engine, rid, json_out)
         elif state is RunState.AWAITING_REVIEW:
             report_path = engine.approve_review(rid)

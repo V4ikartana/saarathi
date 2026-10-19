@@ -63,7 +63,8 @@ examples/health-widget/demo.sh codex-only       # hosts without Claude Code
 | `saarathi run BRIEF [--non-interactive] [--accept-defaults]` | Start a run |
 | `saarathi status` / `tasks` | Run and task state (`--json` available) |
 | `saarathi answer Q1 "..."` | Answer a clarification question |
-| `saarathi approve` | Approve the plan, or the final review |
+| `saarathi approve` | Approve the plan, an escalation's ADR change, or the final review |
+| `saarathi escalations` / `escalations reject ID` | Worker escalations, the lead's verdicts and checkpoints |
 | `saarathi resume` | Continue after a pause, crash or answer |
 | `saarathi pause` / `cancel` | Stop dispatching / cancel a run |
 | `saarathi review` / `report [--json]` | Evidence, lead verdict, diff summary, final report |
@@ -107,7 +108,9 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
 ## Known limitations
 
 - Live verification so far covers one macOS host; Linux has offline tests only.
-- Operational orchestration is rule-based (retries with feedback, escalation by pausing). Model-backed triage is planned.
+- Operational orchestration is rule-based: retries with feedback, and escalations that a worker raises are sent to
+  the lead, with ADR changes gated on your approval (ADR-0010). Model-backed operations summaries are planned.
+  Succeeded tasks are not reworked when an ADR is superseded.
 - Provider limits are recognized from error text (no stable codes); real rate-limit and quota messages have not
   yet been captured from a live run, so classification may miss a provider's wording.
 - No API adapters or budget ledger yet.

@@ -12,7 +12,7 @@ from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from saarathi.core.contracts import IntakeResult, ModelDescriptor, Plan, ReviewVerdict, Usage
+from saarathi.core.contracts import EscalationVerdict, IntakeResult, ModelDescriptor, Plan, ReviewVerdict, Usage
 from saarathi.core.policy import Policy
 from saarathi.git.workspace import ALWAYS_DENIED, path_matches
 from saarathi.orchestration import prompts
@@ -129,4 +129,13 @@ class LeadAgent:
             prompts.REVIEW_SCHEMA,
             cwd,
             ReviewVerdict,
+        )
+
+    async def escalation(self, checkpoint: str, cwd: Path) -> EscalationVerdict:
+        return await self._complete(
+            "lead.escalation",
+            prompts.escalation_prompt(checkpoint),
+            prompts.ESCALATION_SCHEMA,
+            cwd,
+            EscalationVerdict,
         )

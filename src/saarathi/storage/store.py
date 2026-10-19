@@ -95,6 +95,22 @@ class AttemptRecord:
 
 
 @dataclass(frozen=True)
+class EscalationRecord:
+    id: str
+    run_id: str
+    task_id: str
+    attempt_id: str
+    kind: str
+    summary: str
+    report: dict[str, Any]
+    status: str  # open | awaiting_approval | applied | stopped | rejected
+    checkpoint: str | None
+    verdict: dict[str, Any] | None
+    resolution: str | None
+    created_at: str
+
+
+@dataclass(frozen=True)
 class ProviderHealth:
     adapter: str
     state: str  # cooling_down | exhausted
@@ -584,7 +600,9 @@ class StateStore:
         """Return {candidate_id: (successes, finished_attempts)} across all runs."""
         rows = self._conn.execute(
             "SELECT adapter, model, SUM(outcome='succeeded') AS ok, COUNT(*) AS n FROM attempts"
-            " WHERE status='finished' GROUP BY adapter, model"
+            " WHERE status='finished' AND outcome IN ('succeeded', 'failed')"
+            " AND COALESCE(json_extract(result_json, '$.error_kind'), '') NOT IN ('rate_limit', 'quota_exhausted')"
+            " GROUP BY adapter, model"
         ).fetchall()
         return {f"{r['adapter']}:{r['model']}": (int(r["ok"] or 0), int(r["n"])) for r in rows}
 
@@ -716,3 +734,106 @@ class StateStore:
                     "provider.recovered", {"adapter": adapter, "reason": reason}, actor=actor, run_id=run_id
                 )
             return bool(cur.rowcount)
+
+    # ------------------------------------------------------------------ escalations (Scenario E)
+
+    def create_escalation(
+        self, run_id: str, task_id: str, attempt_id: str, *, kind: str, summary: str, report: dict[str, Any], actor: str
+    ) -> EscalationRecord:
+        esc_id = new_id("esc")
+        now = utcnow()
+        with self.transaction() as conn:
+            conn.execute(
+                "INSERT INTO escalations (id, run_id, task_id, attempt_id, kind, summary, report_json, status,"
+                " created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    esc_id,
+                    run_id,
+                    task_id,
+                    attempt_id,
+                    kind,
+                    summary,
+                    self._redact(json.dumps(report, sort_keys=True)),
+                    "open",
+                    now,
+                    now,
+                ),
+            )
+            self.append_event(
+                "escalation.raised",
+                {"escalation_id": esc_id, "kind": kind, "summary": summary},
+                actor=actor,
+                run_id=run_id,
+                task_id=task_id,
+                correlation_id=esc_id,
+            )
+        return self.get_escalation(esc_id)
+
+    def update_escalation(
+        self,
+        esc_id: str,
+        *,
+        status: str,
+        actor: str,
+        checkpoint: str | None = None,
+        verdict: dict[str, Any] | None = None,
+        resolution: str | None = None,
+    ) -> EscalationRecord:
+        with self.transaction() as conn:
+            esc = self.get_escalation(esc_id)
+            conn.execute(
+                "UPDATE escalations SET status=?, checkpoint=COALESCE(?, checkpoint),"
+                " verdict_json=COALESCE(?, verdict_json), resolution=COALESCE(?, resolution), updated_at=? WHERE id=?",
+                (
+                    status,
+                    checkpoint,
+                    None if verdict is None else json.dumps(verdict, sort_keys=True),
+                    resolution,
+                    utcnow(),
+                    esc_id,
+                ),
+            )
+            self.append_event(
+                "escalation.updated",
+                {"escalation_id": esc_id, "from": esc.status, "to": status, "resolution": resolution},
+                actor=actor,
+                run_id=esc.run_id,
+                task_id=esc.task_id,
+                correlation_id=esc_id,
+            )
+        return self.get_escalation(esc_id)
+
+    def get_escalation(self, esc_id: str) -> EscalationRecord:
+        row = self._conn.execute("SELECT * FROM escalations WHERE id = ?", (esc_id,)).fetchone()
+        if row is None:
+            raise NotFound(f"escalation {esc_id} not found")
+        return self._escalation(row)
+
+    def escalations(
+        self, run_id: str, *, task_id: str | None = None, status: str | None = None
+    ) -> list[EscalationRecord]:
+        sql, args = "SELECT * FROM escalations WHERE run_id=?", [run_id]
+        if task_id:
+            sql += " AND task_id=?"
+            args.append(task_id)
+        if status:
+            sql += " AND status=?"
+            args.append(status)
+        return [self._escalation(r) for r in self._conn.execute(sql + " ORDER BY created_at, rowid", args)]
+
+    @staticmethod
+    def _escalation(row: sqlite3.Row) -> EscalationRecord:
+        return EscalationRecord(
+            id=row["id"],
+            run_id=row["run_id"],
+            task_id=row["task_id"],
+            attempt_id=row["attempt_id"],
+            kind=row["kind"],
+            summary=row["summary"],
+            report=json.loads(row["report_json"]),
+            status=row["status"],
+            checkpoint=row["checkpoint"],
+            verdict=_loads(row["verdict_json"]),
+            resolution=row["resolution"],
+            created_at=row["created_at"],
+        )

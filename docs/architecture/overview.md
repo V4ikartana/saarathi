@@ -39,6 +39,9 @@ CREATED → INTAKE → (CLARIFYING) → PLANNING → AWAITING_PLAN_APPROVAL → 
 5. **Execute.** Ready tasks are routed and leased. Each attempt runs in its own worktree and branch, starting
    from the run base, or for dependent tasks from their dependencies' verified commits (merged if several). A
    dependent task's prompt includes its dependencies' named results, filtered field by field by policy (ADR-0009).
+   A worker that hits a conflict with an accepted decision escalates instead of working around it: the task and
+   its dependents pause, the lead rules on an evidence-backed checkpoint, and ADR changes wait for your approval
+   (ADR-0010).
    Saarathi then computes the diff itself, rejects out-of-scope changes and any change to the user's
    checkout, commits the change with attempt trailers and runs the verification commands. Failures retry with
    feedback up to the attempt budget, then pause the run with a checkpoint file.

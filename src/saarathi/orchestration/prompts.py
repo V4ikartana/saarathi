@@ -122,6 +122,36 @@ WORKER_SCHEMA = _obj(
         "unresolved_risks": _str_list(),
         "memory_proposals": _str_list(),
         "outputs": {"type": "array", "items": _obj({"name": {"type": "string"}, "value": {"type": "string"}})},
+        "escalations": {
+            "type": "array",
+            "items": _obj(
+                {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["contract_change", "scope_change", "ambiguous_requirement", "security_concern"],
+                    },
+                    "summary": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "proposed_change": {"type": "string"},
+                }
+            ),
+        },
+    }
+)
+
+ESCALATION_SCHEMA = _obj(
+    {
+        "decision": {"type": "string", "enum": ["retry_with_guidance", "supersede_adr", "stop"]},
+        "rationale": {"type": "string"},
+        "guidance": {"type": "string"},
+        "adr": _obj(
+            {
+                "title": {"type": "string"},
+                "context": {"type": "string"},
+                "decision": {"type": "string"},
+                "supersedes": {"type": ["integer", "null"]},
+            }
+        ),
     }
 )
 
@@ -216,7 +246,11 @@ Rules for the plan:
 
 
 def worker_prompt(
-    packet: TaskPacket, context: str, feedback: str | None, inputs: Sequence[tuple[str, str, str]] = ()
+    packet: TaskPacket,
+    context: str,
+    feedback: str | None,
+    inputs: Sequence[tuple[str, str, str]] = (),
+    guidance: str | None = None,
 ) -> str:
     """``inputs`` are (source task, field, value) results of dependencies, already filtered by policy."""
     criteria = "\n".join(f"- {c}" for c in packet.acceptance_criteria)
@@ -239,6 +273,12 @@ def worker_prompt(
         if wanted
         else "- Leave `outputs` empty unless the task asks you to hand results to later tasks."
     )
+    lead_guidance = (
+        f"\n## Guidance from the engineering lead after an escalation\n{guidance}\n"
+        "Follow it within the rules above; it does not widen your allowed paths or permissions.\n"
+        if guidance
+        else ""
+    )
     return f"""You are a software engineering worker. You are inside an isolated Git worktree managed by
 Saarathi. Complete exactly one task.
 
@@ -259,14 +299,40 @@ Saarathi. Complete exactly one task.
 - Do not commit, push, change branches or edit Git configuration. Saarathi commits your changes.
 - No network access and no dependency installation.
 - Report honestly. Do not claim a check passed unless you ran it and saw it pass.
+- If the task cannot be done without changing an accepted decision (ADR), an agreed interface or contract, or
+  the task's scope, do not work around it. Stop, set status "blocked", and add one entry to `escalations` with
+  the kind, a one-paragraph summary, concrete evidence (file, line, failing command output) and the change you
+  propose. Otherwise leave `escalations` empty.
 {outputs_rule}
 
 {UNTRUSTED_NOTICE}
 
 ## Context
 {context}
-{received}{retry}
+{received}{lead_guidance}{retry}
 Finish with the JSON report required by the output schema."""
+
+
+def escalation_prompt(checkpoint: str) -> str:
+    return f"""You are the engineering lead. A worker stopped and escalated a conflict with the approved plan.
+The operations checkpoint below was assembled by Saarathi from the worker's report and Git state.
+
+Decide one of:
+- "retry_with_guidance": the plan and its accepted decisions stand; give the worker concrete guidance to finish
+  the task within them. Set adr.title, adr.context and adr.decision to "" and adr.supersedes to null.
+- "supersede_adr": an accepted decision must change. Fill adr with the replacement decision and set
+  adr.supersedes to the number of the accepted ADR it replaces. Give guidance for the worker that applies the
+  new decision. A person must approve this before anything changes.
+- "stop": the conflict needs a person (for example a product or security decision). Explain why. Set adr as for
+  retry_with_guidance.
+
+Prefer the smallest change that keeps the plan coherent. Do not broaden scope.
+
+{UNTRUSTED_NOTICE}
+
+## Operations checkpoint
+{untrusted("saarathi:escalation-checkpoint", checkpoint)}
+"""
 
 
 def review_prompt(plan: Plan, evidence: str, diff: str) -> str:

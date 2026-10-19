@@ -103,6 +103,8 @@ class ExecutionConfig(Strict):
     max_cooldown_wait_seconds: float = Field(default=600.0, ge=0)
     # Provider-limit retries per task before the task is blocked for a person to decide.
     max_rate_limit_retries: int = Field(default=3, ge=1, le=10)
+    # Escalations a task may raise before it is left for a person without consulting the lead again.
+    max_escalations_per_task: int = Field(default=2, ge=1, le=5)
     # Build artifacts that are never committed or counted as task changes.
     ignored_artifacts: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_ARTIFACTS))
 
