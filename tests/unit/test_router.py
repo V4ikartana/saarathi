@@ -1,3 +1,5 @@
+import pytest
+
 from saarathi.core.contracts import (
     Complexity,
     ModelCapabilities,
@@ -140,3 +142,17 @@ def test_cooling_adapter_is_skipped_and_reported():
     only = route(req(), [CODEX], policy(), load)
     assert only.chosen is None and "limited by its provider" in only.reason
     assert only.available_at == "2026-10-19T10:00:00.000+00:00"
+
+
+@pytest.mark.parametrize("override", [{"mode": "hybrid"}, {"mode": "api"}, {"billing": {"api_enabled": True}}])
+def test_v01_policy_rejects_metered_modes(override):
+    from saarathi.core.errors import ConfigError
+
+    raw = {
+        "orchestration": {"lead": {"adapter": "claude-code", "model": "opus"}},
+        "routing": {"allowed_providers": ["anthropic"], "allowed_models": ["anthropic/*"]},
+        "providers": {"claude-code": {"models": [{"id": "opus"}]}},
+        **override,
+    }
+    with pytest.raises(ConfigError, match="ADR-0011"):
+        parse_policy(raw)

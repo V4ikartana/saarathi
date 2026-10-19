@@ -141,3 +141,18 @@ def test_disabled_worker_is_never_claimed_usable(repo, tmp_path, monkeypatch):
     monkeypatch.chdir(repo)
     listing = {m["candidate"]: m for m in json.loads(runner.invoke(app, ["models", "list", "--json"]).stdout)}
     assert listing["fake-codex:default"]["available"] is False
+
+
+def test_cli_signed_in_with_api_key_is_never_used(repo, tmp_path):
+    """Scenario C as it applies to subscription-only v0.1: a metered worker is ineligible, never a fallback."""
+    record = setup(repo, tmp_path, {"T-001": [GOOD_T1], "T-002": [GOOD_T2]})
+    path = repo / ".saarathi" / "policies.yaml"
+    pol = yaml.safe_load(path.read_text())
+    pol["providers"]["fake-codex"]["options"] = {**pol["providers"]["fake-codex"]["options"], "metered": True}
+    path.write_text(yaml.safe_dump(pol))
+    project, run_id, state = drive(repo, tmp_path)
+    assert state is RunState.AWAITING_REVIEW
+    assert {r["adapter"] for r in records(record) if r["key"] in ("T-001", "T-002")} == {"fake-claude"}
+    for tid in ("T-001", "T-002"):
+        rejected = {r.candidate: r.reasons for r in project.store.decisions(run_id, tid)[-1].rejected}
+        assert "metered usage is blocked" in rejected["fake-codex:default"][0]

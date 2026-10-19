@@ -6,9 +6,9 @@ Saarathi is pre-alpha. Only the latest commit on the default branch receives sec
 
 ## Reporting a vulnerability
 
-Please do **not** open a public issue for security problems. Use the repository host's private
-vulnerability reporting feature (for GitHub: *Security → Report a vulnerability*). Until the public
-repository exists, contact the maintainer directly: **contact: TBD**.
+Please do **not** open a public issue for security problems. Report them privately through GitHub's
+private vulnerability reporting: on the repository, open *Security → Report a vulnerability*. Reports go only
+to the maintainers.
 
 Include a description, reproduction steps, affected version or commit, and impact. We aim to acknowledge
 reports within 7 days and to agree on a disclosure timeline with you. Please give us a reasonable chance to fix the problem

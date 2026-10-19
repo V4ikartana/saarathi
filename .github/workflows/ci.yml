@@ -13,8 +13,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         python: ["3.12", "3.13"]
+        include:
+          # macOS minutes cost 10x on private repositories: one Python version is enough there.
+          - os: macos-latest
+            python: "3.12"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

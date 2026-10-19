@@ -41,6 +41,9 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   lead, whose `retry_with_guidance` applies automatically while `supersede_adr` waits for `saarathi approve`
   before any ADR changes. Bounded per task. New `saarathi escalations [reject ID]`.
 
+- v0.1 scope is subscription-only (ADR-0011): `policy validate` rejects API and hybrid modes and enabled API
+  billing.
+
 ### Fixed
 - Unblocking a task on resume no longer makes it READY before its dependencies have succeeded.
 - Dependent tasks now start from their dependencies' verified commits instead of the bare run base; conflicting

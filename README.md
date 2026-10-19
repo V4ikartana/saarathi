@@ -113,7 +113,8 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
   Succeeded tasks are not reworked when an ADR is superseded.
 - Provider limits are recognized from error text (no stable codes); real rate-limit and quota messages have not
   yet been captured from a live run, so classification may miss a provider's wording.
-- No API adapters or budget ledger yet.
+- Subscription CLIs only (ADR-0011): API and hybrid modes, API adapters and the budget ledger are deferred.
+  A CLI signed in with an API key is treated as metered and never used.
 - Integration/account-aware routing (brief §12A) works on what you **register**, not on what Saarathi detects:
   Claude Code and Codex CLI expose no documented integration inventory, so `integrations scan` reports `unverified`
   and `integrations verify` can only record your confirmation, never provider verification. The lead's plan schema

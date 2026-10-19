@@ -165,10 +165,15 @@ class Policy(Strict):
 
     @model_validator(mode="after")
     def _consistent(self) -> Policy:
-        if self.mode is Mode.SUBSCRIPTION and self.billing.api_enabled:
-            raise ValueError("mode 'subscription' cannot set billing.api_enabled: true (use 'hybrid' or 'api')")
-        if self.billing.allow_api_fallback and not self.billing.api_enabled:
-            raise ValueError("billing.allow_api_fallback requires billing.api_enabled")
+        if self.mode is not Mode.SUBSCRIPTION:
+            raise ValueError(
+                f"mode '{self.mode}' is not supported in v0.1: Saarathi runs on subscription CLIs only (ADR-0011)"
+            )
+        if self.billing.api_enabled or self.billing.allow_api_fallback:
+            raise ValueError(
+                "billing.api_enabled and billing.allow_api_fallback must be false in v0.1: metered API use is not "
+                "supported yet (ADR-0011)"
+            )
         refs = [self.orchestration.lead]
         if self.orchestration.lead_substitute:
             refs.append(self.orchestration.lead_substitute)
@@ -204,7 +209,7 @@ def parse_policy(raw: object, *, source: str = "<policy>") -> Policy:
 DEFAULT_POLICY_YAML = """\
 # Saarathi policy. Every field is enforced by deterministic code, not by a model.
 version: 1
-mode: subscription            # subscription | api | hybrid
+mode: subscription            # v0.1 supports subscription CLIs only (ADR-0011)
 
 orchestration:
   # The engineering lead runs intake, planning and final review. It must be a declared model below.
@@ -225,7 +230,7 @@ routing:
   spread_across_providers: true
 
 billing:
-  api_enabled: false          # metered transports (API keys) are blocked while false
+  api_enabled: false          # must stay false in v0.1; CLIs signed in with an API key are blocked as metered
   allow_api_fallback: false
   max_run_usd: 0
   max_month_usd: 0
