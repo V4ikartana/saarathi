@@ -24,6 +24,7 @@ from saarathi.core.contracts import (
     IntakeResult,
     ModelDescriptor,
     Plan,
+    RoutingDecision,
     TaskPacket,
     TaskPermissions,
     Transport,
@@ -36,12 +37,14 @@ from saarathi.core.states import RUN_TERMINAL, TASK_IN_FLIGHT, RunState, TaskSta
 from saarathi.git.workspace import scope_violations
 from saarathi.integrations.model import DataSource, IntegrationSnapshot
 from saarathi.orchestration import prompts
+from saarathi.orchestration.handoff import Handoff, dependency_results, plan_handoff
 from saarathi.orchestration.lead import LeadAgent, LeadError
 from saarathi.orchestration.project import Project
 from saarathi.providers.base import ErrorKind, Invocation, InvocationMode
 from saarathi.reporting.report import write_report
 from saarathi.routing.router import RoutingRequest, RuntimeLoad, resolve_lead, route
 from saarathi.runtime.process import kill_process_group, process_alive
+from saarathi.security.redaction import Redactor
 from saarathi.storage.store import AttemptRecord, TaskRecord, utcnow
 from saarathi.verification.verifier import all_passed, run_verification
 
@@ -541,6 +544,23 @@ class Engine:
         attempts = self.p.store.attempts(run_id, task_id)
         return attempts[-1] if attempts else None
 
+    def _handoff(self, run_id: str, task_id: str, decision: RoutingDecision) -> Handoff:
+        """Dependency results this attempt may see, filtered field by field (see handoff.py)."""
+        rows = [
+            (t.id, tuple(t.packet.dependencies), tuple(t.packet.integrations), t.result)
+            for t in self.p.store.tasks(run_id)
+        ]
+        handoff = plan_handoff(task_id, dependency_results(rows), decision, Redactor())
+        if handoff.passed or handoff.dropped:
+            self.p.store.append_event(
+                "handoff.prepared",
+                {"decision_id": decision.decision_id, "passed": handoff.passed, "dropped": handoff.dropped},
+                actor=ACTOR,
+                run_id=run_id,
+                task_id=task_id,
+            )
+        return handoff
+
     def _task_base(self, run_id: str, task_id: str) -> str:
         """Commit a task's worktree starts from: the run base, or its dependencies' combined work."""
         stored = self.p.store.get_control(run_id, f"{TASK_BASE_PREFIX}{task_id}")
@@ -627,7 +647,10 @@ class Engine:
             payload={"attempt_id": attempt.id, "candidate": model.candidate_id},
         )
         context_doc = self.p.memory.read(f"tasks/{run_id}/{task.id}.context.md")
-        prompt = prompts.worker_prompt(task.packet, context_doc.content if context_doc else "", feedback)
+        handoff = self._handoff(run_id, task.id, decision)
+        prompt = prompts.worker_prompt(
+            task.packet, context_doc.content if context_doc else "", feedback, handoff.inputs
+        )
         before = git.checkout_snapshot()
         adapter = self.p.registry.get(model.adapter)
         heartbeat = asyncio.ensure_future(self._heartbeat(run_id, task.id))
@@ -658,6 +681,7 @@ class Engine:
             heartbeat.cancel()
 
         assessment = WorkerResult(
+            received_inputs=handoff.passed,
             task_id=task.id,
             attempt_id=attempt.id,
             status="failed",

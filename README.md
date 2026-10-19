@@ -111,10 +111,11 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
 - Integration/account-aware routing (brief §12A) works on what you **register**, not on what Saarathi detects:
   Claude Code and Codex CLI expose no documented integration inventory, so `integrations scan` reports `unverified`
   and `integrations verify` can only record your confirmation, never provider verification. The lead's plan schema
-  carries integration requirements (checked live on both CLIs; real mail access is not). There is no cross-task
-  data handoff yet, so transfer field limits are recorded
-  rather than applied to content. Real Gmail/Outlook use is untested. See
-  [ADR-0008](docs/architecture/decisions/ADR-0008-integration-and-identity-aware-routing.md).
+  carries integration requirements (checked live on both CLIs; real mail access is not). Results handed between
+  tasks are filtered field by field (`share_fields`, `integrations.shareable_fields`), but Saarathi cannot prove a
+  worker's reported value came from the account it names. Real Gmail/Outlook use is untested. See
+  [ADR-0008](docs/architecture/decisions/ADR-0008-integration-and-identity-aware-routing.md) and
+  [ADR-0009](docs/architecture/decisions/ADR-0009-cross-task-handoff.md).
 - A failed task stays failed for that run. Recovery from escalations means a new run.
 - POSIX only (`fcntl` locking, process groups).
 

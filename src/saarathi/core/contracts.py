@@ -256,6 +256,13 @@ class TaskPacket(Strict):
     integrations: list[IntegrationRequirement] = Field(default_factory=list)
 
 
+class NamedOutput(Strict):
+    """One result field a task hands to later tasks, e.g. ``subject`` of a message it read."""
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
+    value: str = Field(max_length=20_000)
+
+
 class WorkerReport(Strict):
     """What a worker says about its own work. Advisory only; never evidence on its own."""
 
@@ -266,6 +273,8 @@ class WorkerReport(Strict):
     assumptions: list[str]
     unresolved_risks: list[str]
     memory_proposals: list[str]
+    # Results for dependent tasks. Saarathi filters them by policy before anyone else sees them.
+    outputs: list[NamedOutput] = Field(default_factory=list)
 
 
 class Usage(Strict):
@@ -309,6 +318,8 @@ class WorkerResult(Strict):
     verification: list[CommandEvidence] = Field(default_factory=list)
     worker_report: WorkerReport | None = None
     usage: Usage = Field(default_factory=Usage)
+    # "<task>.<field>" inputs this attempt received from dependencies after policy filtering.
+    received_inputs: list[str] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- routing

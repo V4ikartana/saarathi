@@ -121,6 +121,7 @@ WORKER_SCHEMA = _obj(
         "assumptions": _str_list(),
         "unresolved_risks": _str_list(),
         "memory_proposals": _str_list(),
+        "outputs": {"type": "array", "items": _obj({"name": {"type": "string"}, "value": {"type": "string"}})},
     }
 )
 
@@ -214,7 +215,10 @@ Rules for the plan:
 {retry}"""
 
 
-def worker_prompt(packet: TaskPacket, context: str, feedback: str | None) -> str:
+def worker_prompt(
+    packet: TaskPacket, context: str, feedback: str | None, inputs: Sequence[tuple[str, str, str]] = ()
+) -> str:
+    """``inputs`` are (source task, field, value) results of dependencies, already filtered by policy."""
     criteria = "\n".join(f"- {c}" for c in packet.acceptance_criteria)
     paths = "\n".join(f"- {p}" for p in packet.allowed_paths)
     checks = "\n".join(f"- `{c}`" for c in packet.verification_commands)
@@ -223,6 +227,17 @@ def worker_prompt(packet: TaskPacket, context: str, feedback: str | None) -> str
         "Start again from a clean checkout and address the failure.\n"
         if feedback
         else ""
+    )
+    received = ""
+    if inputs:
+        body = "\n".join(f"[{src}.{name}]\n{value}" for src, name, value in inputs)
+        received = f"\n## Results from earlier tasks\n{untrusted('saarathi:task-handoff', body)}\n"
+    wanted = sorted({f for req in packet.integrations for f in req.share_fields})
+    outputs_rule = (
+        f"- Return these results in `outputs` (name/value pairs) for later tasks: {', '.join(wanted)}.\n"
+        "  Put nothing else there."
+        if wanted
+        else "- Leave `outputs` empty unless the task asks you to hand results to later tasks."
     )
     return f"""You are a software engineering worker. You are inside an isolated Git worktree managed by
 Saarathi. Complete exactly one task.
@@ -244,12 +259,13 @@ Saarathi. Complete exactly one task.
 - Do not commit, push, change branches or edit Git configuration. Saarathi commits your changes.
 - No network access and no dependency installation.
 - Report honestly. Do not claim a check passed unless you ran it and saw it pass.
+{outputs_rule}
 
 {UNTRUSTED_NOTICE}
 
 ## Context
 {context}
-{retry}
+{received}{retry}
 Finish with the JSON report required by the output schema."""
 
 

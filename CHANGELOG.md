@@ -26,7 +26,13 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   account/tenant/resource), and plan checks reject a task that uses two accounts of one service. Verified live on
   Claude Code and Codex CLI (`docs/phase0/evidence/live-plan-schema-integrations.md`).
 
+- Cross-task data handoff (P2b, ADR-0009): workers return named `outputs`; dependent tasks receive only the
+  fields policy permits (`share_fields`, approved cross-provider transfers), redacted and size-capped, with
+  field names audited in `handoff.prepared` events. Integration data cannot be passed on through an intermediate task.
+
 ### Fixed
+- Dependent tasks now start from their dependencies' verified commits instead of the bare run base; conflicting
+  dependencies block the task with a checkpoint (ADR-0009).
 - Two checkpoints written for one run within the same second no longer collide.
 - Build artifacts from workers' test runs (`__pycache__`, caches) no longer fail scope checks
   (`execution.ignored_artifacts`).

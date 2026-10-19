@@ -36,7 +36,9 @@ CREATED → INTAKE → (CLARIFYING) → PLANNING → AWAITING_PLAN_APPROVAL → 
    gives the lead one chance to fix them, and otherwise pauses.
 4. **Approve.** A person approves. Saarathi records the plan's decisions as accepted ADRs, compiles a
    cited, size-capped context snapshot per task, and writes the task packets.
-5. **Execute.** Ready tasks are routed and leased. Each attempt runs in its own worktree and branch.
+5. **Execute.** Ready tasks are routed and leased. Each attempt runs in its own worktree and branch, starting
+   from the run base, or for dependent tasks from their dependencies' verified commits (merged if several). A
+   dependent task's prompt includes its dependencies' named results, filtered field by field by policy (ADR-0009).
    Saarathi then computes the diff itself, rejects out-of-scope changes and any change to the user's
    checkout, commits the change with attempt trailers and runs the verification commands. Failures retry with
    feedback up to the attempt budget, then pause the run with a checkpoint file.

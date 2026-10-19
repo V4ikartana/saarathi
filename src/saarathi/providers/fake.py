@@ -83,6 +83,7 @@ class FakeAdapter(ProviderAdapter):
                             "key": key,
                             "purpose": inv.purpose,
                             "model": inv.model,
+                            "prompt": inv.prompt,
                             "cwd": str(inv.cwd),
                             "ts": time.time(),
                         }
