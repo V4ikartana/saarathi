@@ -12,7 +12,7 @@ export function ExecutionPanel() {
   const run = latestRun(view);
   return (
     <motion.aside initial={{ width: 0, opacity: 0 }} animate={{ width: 320, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
-      transition={SOFT} className="hidden shrink-0 overflow-hidden border-l border-line bg-panel lg:block">
+      transition={SOFT} className="hidden shrink-0 overflow-hidden border-l border-line bg-panel lg:block" data-tour="execution">
       <div className="flex h-full w-80 flex-col overflow-y-auto">
       <div className="border-b border-line px-4 py-3">
         <div className="text-[11px] font-medium uppercase tracking-wide text-faint">Execution</div>

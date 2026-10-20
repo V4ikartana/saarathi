@@ -43,6 +43,7 @@ from saarathi.git.workspace import GitError, GitRepo, data_dir
 from saarathi.orchestration.engine import Engine
 from saarathi.orchestration.preferences import PRESET_LABELS, RunPreferences
 from saarathi.orchestration.project import META, Project
+from saarathi.policy_edit import ADDABLE, plan_policy_edit, write_policy
 from saarathi.reporting.usage import usage_summary
 from saarathi.routing.router import resolve_lead
 from saarathi.security.redaction import Redactor
@@ -135,6 +136,7 @@ class BridgeService:
             "models.set_enabled": self.models_set_enabled,
             "providers.status": self.providers_status,
             "policy.get": self.policy_get,
+            "policy.update": self.policy_update,
             "usage.summary": self.usage_summary,
             "usage.limits": self.usage_limits,
         }
@@ -600,8 +602,8 @@ class BridgeService:
         return {"disabled": sorted(user_settings.set_model_enabled(candidate, enabled))}
 
     def policy_get(self, project: str) -> dict[str, Any]:
-        """The effective policy and how each worker is contained, for the permission review screen. Read-only:
-        the policy is changed by editing .saarathi/policies.yaml."""
+        """The effective policy and how each worker is contained, for the policy screen. Edits go through
+        ``policy.update``, which validates and backs up before writing."""
         p = self.project(project)
         pol = p.policy
         cap = pol.approvals.max_preset
@@ -657,7 +659,58 @@ class BridgeService:
                 include={"task_timeout_seconds", "verification_timeout_seconds", "max_attempts", "env_passthrough"},
             ),
             "workers": workers,
+            "lead_candidates": [
+                {
+                    "candidate": m.candidate_id,
+                    "tier": m.capabilities.reasoning_tier,
+                    "available": m.available,
+                    "reason": m.unavailable_reason,
+                }
+                for m in p.registry.models()
+                if m.capabilities.structured_output and m.id != "default"
+            ],
+            "addable_adapters": [name for name in ADDABLE if name not in configured],
+            "editable": {
+                "orchestration.lead": f"{pol.orchestration.lead.adapter}:{pol.orchestration.lead.model}",
+                "orchestration.lead_substitute": (
+                    f"{pol.orchestration.lead_substitute.adapter}:{pol.orchestration.lead_substitute.model}"
+                    if pol.orchestration.lead_substitute
+                    else None
+                ),
+                "approvals.max_preset": cap.value,
+                "routing.allowed_providers": list(pol.routing.allowed_providers),
+                "routing.max_parallel_workers": pol.routing.max_parallel_workers,
+                "routing.min_remaining_percent": int(pol.routing.min_remaining_percent),
+                "routing.spread_across_providers": pol.routing.spread_across_providers,
+                "permissions.allow_network": pol.permissions.allow_network,
+                "permissions.allow_dependency_install": pol.permissions.allow_dependency_install,
+                "execution.max_attempts": pol.execution.max_attempts,
+                "execution.task_timeout_seconds": pol.execution.task_timeout_seconds,
+                "execution.verification_timeout_seconds": pol.execution.verification_timeout_seconds,
+                "integrations.external_side_effects": pol.integrations.external_side_effects,
+                "integrations.cross_provider_data_transfer": pol.integrations.cross_provider_data_transfer.value,
+                "integrations.user_declared_identity": pol.integrations.user_declared_identity.value,
+                "integrations.require_verified_integration": pol.integrations.require_verified_integration,
+                **{f"providers.{name}.enabled": cfg.enabled for name, cfg in pol.providers.items()},
+            },
         }
+
+    def policy_update(self, project: str, changes: dict[str, Any], dry_run: bool = True) -> dict[str, Any]:
+        """Change allowlisted policy settings. ``dry_run`` (the default) validates and returns the summary and
+        warnings without writing, so the app can ask for confirmation; a real write backs up the old file."""
+        p = self.project(project)
+        path = p.meta / "policies.yaml"
+        edit = plan_policy_edit(path.read_text(encoding="utf-8"), changes, p.registry.models(), source=str(path))
+        result: dict[str, Any] = {"summary": edit.summary, "warnings": edit.warnings, "written": False}
+        if dry_run:
+            return result
+        backup = write_policy(path, edit.text)
+        p.store.append_event(
+            "policy.updated",
+            {"changes": edit.summary, "warnings": edit.warnings, "backup": str(backup.relative_to(p.meta))},
+            actor="user",
+        )
+        return {**result, "written": True, "backup": str(backup)}
 
     def usage_limits(self, project: str, refresh: bool = False) -> dict[str, Any]:
         """Remaining subscription usage per enabled provider, as each CLI reports it.

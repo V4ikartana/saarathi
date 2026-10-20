@@ -123,7 +123,7 @@ class Engine:
         )  # earliest end of a provider cooldown a READY task waits for
         # Remaining plan usage per adapter, read from each CLI on a background thread (routing.min_remaining_percent).
         self._limits: dict[str, ProviderLimits] = {}
-        self._limits_read_at = 0.0
+        self._limits_read_at: float | None = None  # monotonic time of the last read; None until the first
         self._limits_thread: threading.Thread | None = None
         self._limits_lock = threading.Lock()
         self._limits_reported: set[str] = set()
@@ -548,7 +548,8 @@ class Engine:
         if self.p.policy.routing.min_remaining_percent <= 0:
             return
         with self._limits_lock:
-            stale = time.monotonic() - self._limits_read_at > LIMITS_REFRESH_SECONDS
+            last = self._limits_read_at
+            stale = last is None or time.monotonic() - last > LIMITS_REFRESH_SECONDS
             if not stale or (self._limits_thread is not None and self._limits_thread.is_alive()):
                 return
             adapters = [a for n, a in self.p.registry.adapters.items() if self.p.policy.providers[n].enabled]

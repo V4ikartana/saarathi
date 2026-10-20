@@ -6,6 +6,7 @@ import type { ApprovalPreset, ModelInfo, ModelMode, PolicyView, SessionPreferenc
 import { latestRun } from "../lib/types";
 import { useBridge } from "../lib/useBridge";
 import { useApp } from "../store/app";
+import { Skeleton } from "./feedback";
 
 const SELECT =
   "h-7 rounded-lg border border-line bg-bg px-2 text-[12px] text-ink outline-none hover:border-faint/60 focus:ring-2 focus:ring-accent/30 disabled:opacity-50";
@@ -29,8 +30,16 @@ export function SessionControls() {
   const workers = models.data ?? [];
   const chosenModel = workers.find((m) => m.candidate === prefs.model);
 
+  if (!policy.data || !models.data) {
+    // The first model list asks each provider CLI, which can take a few seconds.
+    return (
+      <div className="flex items-center gap-3 px-3 pb-2" data-tour="session-controls" role="status" aria-busy="true" aria-label="Loading session controls">
+        <Skeleton className="h-7 w-44 rounded-lg" /><Skeleton className="h-7 w-56 rounded-lg" />
+      </div>
+    );
+  }
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pb-2 text-[12px] text-muted">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pb-2 text-[12px] text-muted" data-tour="session-controls">
       <label className="flex items-center gap-1.5" title={chosenPreset?.description}>
         <ShieldCheck className="size-3.5" />
         <span className="sr-only">Approvals</span>

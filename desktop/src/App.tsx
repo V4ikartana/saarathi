@@ -10,6 +10,7 @@ import { ProjectPicker } from "./components/ProjectPicker";
 import { RunTimeline } from "./components/RunTimeline";
 import { BootScreen } from "./components/brand";
 import { CommandPalette } from "./components/CommandPalette";
+import { Tour, tourDone } from "./components/Tour";
 import { Toaster } from "./components/feedback";
 import { Segmented, SOFT } from "./components/primitives";
 import { Sidebar } from "./components/Sidebar";
@@ -72,6 +73,12 @@ export default function App() {
     };
   }, [connect]);
 
+  const workspace = Boolean(project?.initialized) && bridgeState === "ready";
+  useEffect(() => {
+    if (!workspace || tourDone()) return;
+    const timer = window.setTimeout(() => useApp.getState().setTourOpen(true), 900); // after the launch animation
+    return () => window.clearTimeout(timer);
+  }, [workspace]);
   const viewId = page !== "session" ? page : `${activeSessionId ?? "none"}:${centerTab}`;
   return (
     <MotionConfig reducedMotion={prefersReducedMotion(appearance.motion) ? "always" : "never"} transition={SOFT}>
@@ -89,11 +96,11 @@ export default function App() {
                       : (view?.session.title ?? (activeSessionId ? "" : "Select or create a session"))}
                   </span>
                   {activeSessionId && page === "session" && (
-                    <Segmented size="sm" label="View" className="ml-2 w-52" value={centerTab} onChange={setCenterTab}
+                    <Segmented size="sm" label="View" className="ml-2 w-52" data-tour="view-switch" value={centerTab} onChange={setCenterTab}
                       options={[{ value: "conversation", label: "Conversation" }, { value: "timeline", label: "Timeline" }]} />
                   )}
                   <span className="ml-auto flex items-center gap-2">
-                    <button type="button" onClick={() => useApp.getState().setPaletteOpen(true)} aria-label="Open the command palette"
+                    <button type="button" onClick={() => useApp.getState().setPaletteOpen(true)} aria-label="Open the command palette" data-tour="palette"
                       className="hidden items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 text-[12px] text-faint hover:border-line-strong hover:text-ink md:flex">
                       <Command className="size-3.5" />K
                     </button>
@@ -137,6 +144,7 @@ export default function App() {
           )}
         </AnimatePresence>
         <CommandPalette />
+        <Tour />
         <Toaster />
         <BootScreen />
       </div>

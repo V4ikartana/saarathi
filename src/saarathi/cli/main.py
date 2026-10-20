@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 
 from saarathi import __version__, user_settings
 from saarathi.bridge.drivers import INTERRUPT_CONTROL
@@ -48,6 +49,7 @@ from saarathi.memory.lessons import approve_lesson
 from saarathi.orchestration.engine import GRANT_PREFIX, SELECT_PREFIX, Engine, render_plan
 from saarathi.orchestration.preferences import RunPreferences
 from saarathi.orchestration.project import META, Project
+from saarathi.policy_edit import plan_policy_edit, write_policy
 from saarathi.providers.base import Invocation, InvocationMode
 from saarathi.providers.claude_cli import LIVE_UNVERIFIED_PREFIX
 from saarathi.providers.registry import ProviderRegistry
@@ -524,6 +526,32 @@ def providers_reset(adapter: str) -> None:
     project.registry.get(adapter)  # unknown adapters are a usage error
     cleared = project.store.clear_provider_health(adapter, actor="user", reason="cleared by user")
     typer.echo(f"Cleared the limit on {adapter}." if cleared else f"No limit recorded for {adapter}.")
+
+
+@policy_app.command("set")
+def policy_set(
+    key: Annotated[str, typer.Argument(help="Setting, e.g. lead, routing.max_parallel_workers, providers.add")],
+    value: Annotated[str, typer.Argument(help="New value (YAML), e.g. codex-cli:gpt-6-sol, 3, true")],
+    yes: Annotated[bool, typer.Option("--yes", help="Apply without asking, even if it loosens permissions.")] = False,
+) -> None:
+    """Change one policy setting safely: validated first, the old file backed up, the change logged."""
+    project = _project()
+    path = project.meta / "policies.yaml"
+    parsed = yaml.safe_load(value)
+    try:
+        edit = plan_policy_edit(path.read_text(encoding="utf-8"), {key: parsed}, project.registry.models())
+    except SaarathiError as exc:
+        _fail(exc)
+        raise
+    for line in edit.summary:
+        typer.echo(line)
+    for warning in edit.warnings:
+        typer.echo(f"warning: {warning}", err=True)
+    if edit.warnings and not yes and not typer.confirm("Apply this change?", default=False):
+        raise typer.Exit(1)
+    backup = write_policy(path, edit.text)
+    project.store.append_event("policy.updated", {"changes": edit.summary, "backup": str(backup)}, actor="user")
+    typer.echo(f"Saved. Previous policy kept at {backup}")
 
 
 @policy_app.command("validate")

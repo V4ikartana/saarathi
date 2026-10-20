@@ -70,13 +70,19 @@ export function Composer() {
   };
   return (
     <div className="px-6 pb-5 pt-2">
-      <motion.div layout transition={SOFT}
+      <motion.div layout transition={SOFT} data-tour="composer"
         className="mx-auto max-w-3xl rounded-[20px] border border-line bg-panel elev-2 focus-within:border-accent/60 focus-within:ring-4 focus-within:ring-accent/10">
         <label htmlFor="composer" className="sr-only">Your request</label>
         <textarea id="composer" ref={area} value={draft} rows={3} disabled={locked}
           placeholder={locked ? "This session's run is still active. Answer, approve, stop or cancel it first." : "Describe the change you want…"}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit(); } }}
+          onKeyDown={(e) => {
+            // Enter sends; Shift+Enter adds a line. Never send while an input method is composing (e.g. Japanese, Hindi).
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              void submit();
+            }
+          }}
           className="w-full resize-none bg-transparent px-4 pt-3.5 text-[14px] leading-relaxed outline-none placeholder:text-faint focus-visible:outline-none disabled:opacity-60" />
         <SessionControls />
         <div className="flex items-center gap-3 border-t border-line/60 px-3 pb-2.5 pt-2">
@@ -84,7 +90,7 @@ export function Composer() {
             <Switch label="Accept the lead's default answers" checked={acceptDefaults} onChange={setAcceptDefaults} />
             Accept the lead's default answers
           </label>
-          <span className="ml-auto text-[11px] text-faint"><Kbd>⌘</Kbd> <Kbd>Enter</Kbd></span>
+          <span className="ml-auto text-[11px] text-faint"><Kbd>Enter</Kbd> to send · <Kbd>Shift</Kbd> <Kbd>Enter</Kbd> for a new line</span>
           <Button tone="primary" className="size-9 rounded-full px-0" disabled={!draft.trim() || locked} loading={busy.send}
             onClick={() => void submit()} aria-label="Send">
             <ArrowUp className="size-4" />

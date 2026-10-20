@@ -1,16 +1,17 @@
 // Project-level pages. Usage and permissions are read-only views of engine records and the policy file; settings
 // changes only per-viewer conveniences (theme, defaults for new sessions). The policy itself is edited in its file.
-import { CheckCircle2, CircleAlert, Gauge, RefreshCw, TriangleAlert, XCircle } from "lucide-react";
-import { motion } from "motion/react";
+import { CheckCircle2, CircleAlert, Compass, Gauge, Pencil, RefreshCw, TriangleAlert, XCircle } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { call } from "../lib/bridge";
+import { BridgeError, call } from "../lib/bridge";
 import { type Accent, ACCENTS, loadDefaultPreferences, type Motion, saveDefaultPreferences, type Scale, type Theme } from "../lib/theme";
 import type {
   ApprovalPreset,
   BridgeDiagnostics,
   DoctorReport,
   ModelInfo,
+  PolicyPreview,
   PolicyView,
   ProviderLimits,
   SessionPreferences,
@@ -21,7 +22,7 @@ import { cn, fmtDuration, fmtTokens, resetsIn, timeOf } from "../lib/ui";
 import { useBridge, type Query } from "../lib/useBridge";
 import { useApp } from "../store/app";
 import { AnimatedNumber, Skeleton, SkeletonCard, SkeletonLines, ThinkingDots } from "./feedback";
-import { Button, Meter, Reveal, Segmented, StatePill, Switch } from "./primitives";
+import { Button, EXIT, Meter, Reveal, Segmented, SPRING, StatePill, Switch } from "./primitives";
 
 function PageShell({ title, subtitle, actions, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode }) {
   return (
@@ -246,95 +247,288 @@ export function UsagePage() {
   );
 }
 
-// ---------------------------------------------------------------- permissions
+// ---------------------------------------------------------------- policy
 
-function Flag({ on, label }: { on: boolean; label: string }) {
+type Values = PolicyView["editable"];
+
+const PRESET_LABEL: Record<string, string> = { ask: "Ask before actions", auto_safe: "Auto-approve safe actions", bypass: "Bypass supported approvals" };
+const MODES = [
+  { value: "deny", label: "Never" },
+  { value: "require_approval", label: "Ask me" },
+  { value: "allow", label: "Allow" },
+];
+
+function NumberField({ value, onChange, min, max, label, suffix }: { value: number; onChange: (v: number) => void; min: number; max: number; label: string; suffix?: string }) {
   return (
-    <li className="flex items-center gap-2 text-[13px]">
-      {on ? <CheckCircle2 className="size-4 text-warn" /> : <XCircle className="size-4 text-faint" />}
-      <span className={on ? "" : "text-muted"}>{label}: {on ? "allowed" : "not allowed"}</span>
-    </li>
+    <label className="flex items-center gap-2">
+      <input type="number" aria-label={label} value={value} min={min} max={max}
+        onChange={(e) => onChange(Math.max(min, Math.min(max, Number(e.target.value) || min)))}
+        className="h-8 w-24 rounded-[var(--radius-control)] border border-line bg-bg px-2 text-[13px] tabular outline-none focus:border-accent/60" />
+      {suffix && <span className="text-[12px] text-faint">{suffix}</span>}
+    </label>
   );
 }
 
-const PERMISSION_LABELS: Record<string, string> = {
-  allow_network: "Network access for workers",
-  allow_dependency_install: "Installing dependencies",
-  allow_deployment: "Deployment",
-};
+function Select({ value, onChange, label, options }: { value: string; onChange: (v: string) => void; label: string; options: { value: string; label: string; disabled?: boolean }[] }) {
+  return (
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}
+      className="h-8 w-full max-w-sm rounded-[var(--radius-control)] border border-line bg-bg px-2 text-[13px] outline-none focus:border-accent/60">
+      {options.map((o) => <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function ReviewDialog({ preview, saving, onCancel, onConfirm }: { preview: PolicyPreview; saving: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const [understood, setUnderstood] = useState(false);
+  const risky = preview.warnings.length > 0;
+  return (
+    <motion.div className="fixed inset-0 z-[55] grid place-items-center bg-black/55 px-4 backdrop-blur-[2px]" initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }} exit={{ opacity: 0, transition: EXIT }} onMouseDown={onCancel}>
+      <motion.div role="alertdialog" aria-modal="true" aria-labelledby="policy-review-title" onMouseDown={(e) => e.stopPropagation()}
+        initial={{ opacity: 0, y: 12, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, scale: 0.98, transition: EXIT }}
+        transition={SPRING} className="w-full max-w-lg rounded-[var(--radius-card)] border border-line-strong bg-panel p-6 elev-3">
+        <div className="flex items-center gap-2.5">
+          <span className={cn("grid size-9 place-items-center rounded-full", risky ? "bg-warn/15 text-warn" : "bg-accent/15 text-accent")}>
+            <TriangleAlert className="size-4.5" aria-hidden />
+          </span>
+          <h2 id="policy-review-title" className="text-[17px] font-semibold">Change this project's policy?</h2>
+        </div>
+        <p className="mt-3 text-[13px] leading-relaxed text-muted">
+          The policy sets what AI agents may do in this repository. Saarathi checks the new policy before saving, keeps a
+          backup of the current file, and records the change. Runs already in progress keep the policy they started with.
+        </p>
+        <div className="mt-4 rounded-xl bg-raised/60 px-4 py-3">
+          <div className="text-[12px] font-medium text-faint">Changes</div>
+          <ul className="mt-1.5 space-y-1 font-mono text-[12px]">{preview.summary.map((line) => <li key={line} className="break-anywhere">{line}</li>)}</ul>
+        </div>
+        {risky && (
+          <div className="mt-3 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-[13px]">
+            <div className="font-medium text-warn">This loosens what agents may do</div>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-5">{preview.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+            <label className="mt-3 flex items-center gap-2 text-[13px]">
+              <input type="checkbox" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+              I understand and want to apply these changes
+            </label>
+          </div>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button tone="ghost" onClick={onCancel}>Keep the current policy</Button>
+          <Button tone="primary" disabled={risky && !understood} loading={saving} onClick={onConfirm}>Save policy</Button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 export function PermissionsPage() {
-  const project = useApp((s) => s.project);
-  const policy = useBridge<PolicyView>("policy.get", project ? { project: project.root } : null, { live: false });
+  const { project, toast } = useApp();
+  const root = project?.root ?? "";
+  const [version, setVersion] = useState(0);
+  const policy = useBridge<PolicyView>("policy.get", root ? { project: root } : null, { live: false, version: String(version) });
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Values>({});
+  const [preview, setPreview] = useState<PolicyPreview | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const p = policy.data;
+  const current = p?.editable ?? {};
+  const value = (key: string) => (key in draft ? draft[key] : current[key]);
+  const set = (key: string, v: Values[string]) => setDraft((d) => ({ ...d, [key]: v }));
+  const changes = Object.fromEntries(Object.entries(draft).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(current[k])));
+  const dirty = Object.keys(changes).length > 0;
+
+  const review = async () => {
+    setChecking(true);
+    setError(null);
+    try {
+      setPreview(await call<PolicyPreview>("policy.update", { project: root, changes, dry_run: true }));
+    } catch (err) {
+      setError(err instanceof BridgeError ? `${err.message}${err.hint ? `. ${err.hint}` : ""}` : String(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+  const save = async () => {
+    setSaving(true);
+    try {
+      const done = await call<PolicyPreview>("policy.update", { project: root, changes, dry_run: false });
+      toast("Policy saved", "success", done.backup ? "The previous policy was backed up." : undefined);
+      setPreview(null);
+      setEditing(false);
+      setDraft({});
+      setVersion((v) => v + 1);
+    } catch (err) {
+      setPreview(null);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+  const addAdapter = (adapter: string) => set("providers.add", adapter);
+
+  const actions = !p ? null : editing ? (
+    <div className="flex gap-2">
+      <Button tone="ghost" onClick={() => { setEditing(false); setDraft({}); setError(null); }}>Cancel</Button>
+      <Button tone="primary" disabled={!dirty} loading={checking} onClick={() => void review()}>Review changes</Button>
+    </div>
+  ) : (
+    <Button onClick={() => setEditing(true)}><Pencil className="size-3.5" />Edit policy</Button>
+  );
+
   return (
-    <PageShell title="Permissions"
-      subtitle={<>What Saarathi and its workers may do in this project. Read-only here: the policy owner edits <Mono>{policy.data?.path ?? ".saarathi/policies.yaml"}</Mono>, and changes take effect on the next request.</>}>
+    <PageShell title="Policy" actions={actions}
+      subtitle={<>The rules for this project: who leads, which providers and models may work, and what agents may do. Saved in <Mono>{p?.path ?? ".saarathi/policies.yaml"}</Mono>; edit here or in the file.</>}>
       <Loaded query={policy}>
-        {(p) => (
-          <>
-            <Card title="Approvals">
-              <p className="text-[13px] text-muted">Each session picks a preset. This project allows up to <b className="text-ink">{p.approvals.presets.find((x) => x.id === p.approvals.max_preset)?.label}</b>.</p>
-              <ul className="mt-3 space-y-2">
-                {p.approvals.presets.map((x) => (
-                  <li key={x.id} className={cn("rounded-lg border px-3 py-2", x.allowed ? "border-line" : "border-line/50 opacity-60")}>
-                    <div className="flex items-center gap-2 text-[13px] font-medium">{x.label}
-                      {!x.allowed && <span className="text-[11px] font-normal text-faint">not allowed by approvals.max_preset</span>}</div>
-                    <p className="mt-0.5 text-[12px] text-muted">{x.description}</p>
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-3 text-[12px] text-muted">Always needs a person, under every preset:</div>
-              <ul className="mt-1 list-disc pl-5 text-[12px] text-muted">{p.approvals.never_automatic.map((n) => <li key={n}>{n}</li>)}</ul>
-            </Card>
-            <Card title="Workers and their containment">
-              <ul className="space-y-4">
-                {p.workers.map((w) => (
-                  <li key={w.adapter}>
-                    <div className="flex items-center gap-2 text-[13px]">
-                      <Mono>{w.adapter}</Mono><span className="text-faint">{w.provider}</span>
-                      {!w.enabled && <span className="rounded bg-raised px-1.5 text-[11px] text-faint">disabled</span>}
-                      <span className="ml-auto text-[11px] text-faint">declared models: {w.models.join(", ")}</span>
-                    </div>
-                    <p className="mt-1 text-[12px] text-muted">{w.isolation}</p>
-                    {w.worker_command ? (
-                      <details className="mt-1">
-                        <summary className="cursor-pointer text-[12px] text-faint">Exact command for a worker task</summary>
-                        <pre className="mt-1 overflow-x-auto rounded-md bg-raised px-3 py-2 font-mono text-[11px] whitespace-pre-wrap break-all text-muted">{w.worker_command}</pre>
-                      </details>
-                    ) : <p className="mt-1 text-[12px] text-faint">No external command (CLI not installed, or a test adapter).</p>}
-                  </li>
-                ))}
-              </ul>
-            </Card>
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card title="Project permissions">
-                <ul className="space-y-1.5">
-                  {Object.entries(PERMISSION_LABELS).map(([k, label]) => <Flag key={k} on={Boolean(p.permissions[k])} label={label} />)}
+        {(p) => {
+          const lead = String(value("orchestration.lead") ?? "");
+          const substitute = (value("orchestration.lead_substitute") as string | null) ?? "";
+          const candidates = p.lead_candidates.map((c) => ({
+            value: c.candidate,
+            label: `${c.candidate} · ${c.tier}${c.available ? "" : ` (unavailable: ${c.reason ?? "unknown"})`}`,
+          }));
+          return (
+            <>
+              {error && <div role="alert" className="rounded-xl border border-err/40 bg-err/10 px-4 py-3 text-[13px] text-err">{error}</div>}
+
+              <Card title="Engineering lead">
+                <p className="text-[13px] leading-relaxed text-muted">
+                  The lead reads each request, asks clarifying questions, writes the plan, rules on escalations and reviews
+                  the finished work. It is pinned so it never changes silently between runs. If it is unavailable, runs
+                  pause, unless you set a substitute.
+                </p>
+                <div className="mt-2 divide-y divide-line/60">
+                  <Row label="Lead" hint="Plans and reviews every run.">
+                    {editing ? <Select label="Engineering lead" value={lead} onChange={(v) => set("orchestration.lead", v)} options={candidates} />
+                      : <span className="flex items-center gap-2 text-[14px] font-medium"><Mono>{lead}</Mono></span>}
+                  </Row>
+                  <Row label="Substitute" hint="Used only when the lead is unavailable.">
+                    {editing ? (
+                      <Select label="Lead substitute" value={substitute} onChange={(v) => set("orchestration.lead_substitute", v || null)}
+                        options={[{ value: "", label: "None: pause instead" }, ...candidates]} />
+                    ) : <span className="text-[13px] text-muted">{substitute ? <Mono>{substitute}</Mono> : "None: runs pause instead"}</span>}
+                  </Row>
+                </div>
+              </Card>
+
+              <Card title="Approvals" delay={0.03}>
+                <p className="text-[13px] text-muted">The most any session in this project may delegate.</p>
+                <div className="mt-3">
+                  {editing ? (
+                    <Segmented label="Most a session may delegate" value={String(value("approvals.max_preset"))} onChange={(v) => set("approvals.max_preset", v)}
+                      options={p.approvals.presets.map((x) => ({ value: x.id, label: PRESET_LABEL[x.id] ?? x.label }))} />
+                  ) : (
+                    <ul className="space-y-2">
+                      {p.approvals.presets.map((x) => (
+                        <li key={x.id} className={cn("rounded-xl border px-3 py-2", x.allowed ? "border-line" : "border-line/50 opacity-55")}>
+                          <div className="flex items-center gap-2 text-[13px] font-medium">{x.label}
+                            {!x.allowed && <span className="text-[11px] font-normal text-faint">not allowed</span>}</div>
+                          <p className="mt-0.5 text-[12px] text-muted">{x.description}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="mt-3 text-[12px] text-muted">Always needs a person, under every preset:</div>
+                <ul className="mt-1 list-disc pl-5 text-[12px] text-muted">{p.approvals.never_automatic.map((n) => <li key={n}>{n}</li>)}</ul>
+              </Card>
+
+              <Card title="Providers and routing" delay={0.06}>
+                <div className="divide-y divide-line/60">
+                  {p.workers.map((w) => {
+                    const key = `providers.${w.adapter}.enabled`;
+                    const on = Boolean(value(key));
+                    return (
+                      <Row key={w.adapter} label={w.adapter} hint={`${w.provider} · declared: ${w.models.join(", ")}`}>
+                        {editing ? <Switch label={`Use ${w.adapter} in this project`} checked={on} onChange={(v) => set(key, v)} />
+                          : <span className={cn("text-[13px]", on ? "text-ok" : "text-faint")}>{on ? "Enabled" : "Disabled"}</span>}
+                      </Row>
+                    );
+                  })}
+                  {editing && p.addable_adapters.map((a) => (
+                    <Row key={a} label={a} hint="Installed on this computer, not in this project yet.">
+                      {value("providers.add") === a
+                        ? <span className="text-[13px] text-accent">Will be added</span>
+                        : <Button onClick={() => addAdapter(a)}>Add to this project</Button>}
+                    </Row>
+                  ))}
+                  <Row label="Parallel workers" hint="Tasks that may run at the same time.">
+                    {editing ? <NumberField label="Parallel workers" min={1} max={16} value={Number(value("routing.max_parallel_workers"))} onChange={(v) => set("routing.max_parallel_workers", v)} />
+                      : <span className="text-[13px] tabular">{String(current["routing.max_parallel_workers"])}</span>}
+                  </Row>
+                  <Row label="Avoid nearly exhausted plans" hint="Skip a model while its plan has less than this left. 0 turns it off.">
+                    {editing ? <NumberField label="Minimum plan remaining" min={0} max={50} suffix="%" value={Number(value("routing.min_remaining_percent"))} onChange={(v) => set("routing.min_remaining_percent", v)} />
+                      : <span className="text-[13px] tabular">{String(current["routing.min_remaining_percent"])}%</span>}
+                  </Row>
+                  <Row label="Spread across providers" hint="Prefer an idle provider when several can do the task.">
+                    {editing ? <Switch label="Spread across providers" checked={Boolean(value("routing.spread_across_providers"))} onChange={(v) => set("routing.spread_across_providers", v)} />
+                      : <span className="text-[13px]">{current["routing.spread_across_providers"] ? "On" : "Off"}</span>}
+                  </Row>
+                </div>
+              </Card>
+
+              <Card title="What workers may do" delay={0.09}>
+                <div className="divide-y divide-line/60">
+                  {([["permissions.allow_network", "Network access", "Workers may reach the internet."],
+                    ["permissions.allow_dependency_install", "Install dependencies", "Workers may install packages."]] as const).map(([key, label, hint]) => (
+                    <Row key={key} label={label} hint={hint}>
+                      {editing ? <Switch label={label} checked={Boolean(value(key))} onChange={(v) => set(key, v)} />
+                        : <span className={cn("text-[13px]", current[key] ? "text-warn" : "text-muted")}>{current[key] ? "Allowed" : "Not allowed"}</span>}
+                    </Row>
+                  ))}
+                  <Row label="Attempts per task" hint="Retries before a task is left for you.">
+                    {editing ? <NumberField label="Attempts per task" min={1} max={5} value={Number(value("execution.max_attempts"))} onChange={(v) => set("execution.max_attempts", v)} />
+                      : <span className="text-[13px] tabular">{String(current["execution.max_attempts"])}</span>}
+                  </Row>
+                  <Row label="Task time limit" hint="Longest a worker may run on one attempt.">
+                    {editing ? <NumberField label="Task time limit in minutes" min={1} max={1440} suffix="min" value={Math.round(Number(value("execution.task_timeout_seconds")) / 60)} onChange={(v) => set("execution.task_timeout_seconds", v * 60)} />
+                      : <span className="text-[13px] tabular">{Math.round(Number(current["execution.task_timeout_seconds"]) / 60)} min</span>}
+                  </Row>
+                  <p className="py-2.5 text-[12px] text-muted">Saarathi never merges into your branches; finished work stays on its own branch.</p>
+                </div>
+              </Card>
+
+              <Card title="Integrations" delay={0.12}>
+                <div className="divide-y divide-line/60">
+                  <Row label="Sending, deleting or sharing" hint="External side effects through connected accounts.">
+                    {editing ? <Select label="External side effects" value={String(value("integrations.external_side_effects"))} onChange={(v) => set("integrations.external_side_effects", v)} options={MODES.slice(0, 2)} />
+                      : <span className="text-[13px]">{MODES.find((m) => m.value === current["integrations.external_side_effects"])?.label}</span>}
+                  </Row>
+                  <Row label="Moving results between providers">
+                    {editing ? <Select label="Cross-provider data transfer" value={String(value("integrations.cross_provider_data_transfer"))} onChange={(v) => set("integrations.cross_provider_data_transfer", v)} options={MODES} />
+                      : <span className="text-[13px]">{MODES.find((m) => m.value === current["integrations.cross_provider_data_transfer"])?.label}</span>}
+                  </Row>
+                  <Row label="Accounts you declare" hint="Identities no provider has verified.">
+                    {editing ? <Select label="User-declared identity" value={String(value("integrations.user_declared_identity"))} onChange={(v) => set("integrations.user_declared_identity", v)} options={MODES} />
+                      : <span className="text-[13px]">{MODES.find((m) => m.value === current["integrations.user_declared_identity"])?.label}</span>}
+                  </Row>
+                </div>
+              </Card>
+
+              <Card title="Workers and their containment" delay={0.15}>
+                <ul className="space-y-4">
+                  {p.workers.map((w) => (
+                    <li key={w.adapter}>
+                      <div className="flex items-center gap-2 text-[13px]"><Mono>{w.adapter}</Mono><span className="text-faint">{w.provider}</span></div>
+                      <p className="mt-1 text-[12px] text-muted">{w.isolation}</p>
+                      {w.worker_command && (
+                        <details className="mt-1">
+                          <summary className="text-[12px] text-faint">Exact command for a worker task</summary>
+                          <pre className="mt-1 overflow-x-auto rounded-xl bg-raised px-3 py-2 font-mono text-[11px] whitespace-pre-wrap break-all text-muted">{w.worker_command}</pre>
+                        </details>
+                      )}
+                    </li>
+                  ))}
                 </ul>
-                <p className="mt-2 text-[12px] text-muted">Saarathi never merges into your branches; finished work stays on its own branch.</p>
               </Card>
-              <Card title="Routing">
-                <dl className="space-y-1 text-[12px]">
-                  <div><dt className="inline text-faint">Lead: </dt><dd className="inline"><Mono>{p.lead}</Mono>{p.lead_substitute ? <> (substitute <Mono>{p.lead_substitute}</Mono>)</> : " (no substitute: pauses if unavailable)"}</dd></div>
-                  <div><dt className="inline text-faint">Providers: </dt><dd className="inline">{p.routing.allowed_providers.join(", ")}</dd></div>
-                  <div><dt className="inline text-faint">Models: </dt><dd className="inline"><Mono>{p.routing.allowed_models.join("  ")}</Mono></dd></div>
-                  {p.routing.denied_models.length > 0 && <div><dt className="inline text-faint">Denied: </dt><dd className="inline"><Mono>{p.routing.denied_models.join("  ")}</Mono></dd></div>}
-                  <div><dt className="inline text-faint">Parallel workers: </dt><dd className="inline">{p.routing.max_parallel_workers}</dd></div>
-                  <div><dt className="inline text-faint">Attempts per task: </dt><dd className="inline">{String(p.execution.max_attempts)}</dd></div>
-                </dl>
-              </Card>
-            </div>
-            <Card title="Integrations">
-              <dl className="grid grid-cols-1 gap-x-6 gap-y-1 text-[12px] sm:grid-cols-2">
-                {Object.entries(p.integrations).map(([k, v]) => (
-                  <div key={k}><dt className="inline text-faint">{k.replaceAll("_", " ")}: </dt>
-                    <dd className="inline font-mono">{Array.isArray(v) ? (v.length ? v.join(", ") : "none") : String(v)}</dd></div>
-                ))}
-              </dl>
-            </Card>
-          </>
-        )}
+            </>
+          );
+        }}
       </Loaded>
+      <AnimatePresence>
+        {preview && <ReviewDialog key="review" preview={preview} saving={saving} onCancel={() => setPreview(null)} onConfirm={() => void save()} />}
+      </AnimatePresence>
     </PageShell>
   );
 }
@@ -496,6 +690,9 @@ export function SettingsPage() {
 
   return (
     <PageShell title="Settings" subtitle="Make Saarathi yours. Appearance and defaults stay on this computer; turned-off models apply to every project. Project rules live in the policy file (see Permissions).">
+      <Card title="Guided tour" actions={<Button onClick={() => useApp.getState().setTourOpen(true)}><Compass className="size-3.5" />Take the tour</Button>}>
+        <p className="text-[13px] text-muted">A one-minute walk through every part of the app. It runs once on first launch.</p>
+      </Card>
       <AppearancePanel />
       <ModelsPanel root={root} />
       <Card title="Defaults for new sessions" delay={0.08}>

@@ -44,6 +44,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "models.set_enabled",
     "providers.status",
     "policy.get",
+    "policy.update",
     "usage.summary",
     "usage.limits",
     "subscribe",

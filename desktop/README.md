@@ -52,6 +52,9 @@ The engine side of the desktop app (sessions, runs, cancellation, restart and re
   cancelled.
 - The task inspector, timeline, diffs and logs are read-only views of what the engine recorded. A diff shows the
   task's committed change; while the task has not passed verification it is marked as not accepted.
+- Enter sends a request; Shift+Enter adds a new line. A guided tour runs on first launch (replay it from Settings or ⌘K).
+- The Policy page shows and edits the project's rules, including the engineering lead. Changes are previewed with
+  warnings, validated by the engine, backed up and logged; comments in `policies.yaml` are kept.
 - A session's approval preset and model apply to its next request. The engine checks both against the policy
   (`approvals.max_preset`, routing filters); the app never approves or routes anything itself.
 - Usage shows only what providers reported: tokens and costs per call, and remaining plan usage from each CLI's own usage

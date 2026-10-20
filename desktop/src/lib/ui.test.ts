@@ -43,3 +43,17 @@ describe("session preferences", () => {
     expect(currentPreferences({ approvals: "bypass" }).approvals).toBe("bypass");
   });
 });
+
+describe("tour card placement", () => {
+  it("sits beside the spotlight and never leaves the window", async () => {
+    const { cardPosition } = await import("../components/Tour");
+    Object.defineProperty(window, "innerWidth", { value: 1320, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 860, configurable: true });
+    expect(cardPosition({ x: 10, y: 100, w: 240, h: 40 }, 200)).toEqual({ left: 266, top: 100 });
+    const right = cardPosition({ x: 1000, y: 100, w: 320, h: 600 }, 200);
+    expect(right.left).toBe(1000 - 16 - 340);
+    const low = cardPosition({ x: 10, y: 800, w: 240, h: 40 }, 200);
+    expect(low.top + 200).toBeLessThanOrEqual(860 - 16);
+    expect(cardPosition(null, 200)).toEqual({ left: (1320 - 340) / 2, top: 330 });
+  });
+});

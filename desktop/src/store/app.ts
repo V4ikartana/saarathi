@@ -69,6 +69,7 @@ interface AppState {
   /** The composer's text, shared so suggestions and the command palette can fill it. */
   draft: string;
   paletteOpen: boolean;
+  tourOpen: boolean;
 
   connect: () => Promise<void>;
   openProject: (path: string) => Promise<void>;
@@ -100,6 +101,7 @@ interface AppState {
   dismissToast: (id: number) => void;
   setDraft: (draft: string) => void;
   setPaletteOpen: (open: boolean) => void;
+  setTourOpen: (open: boolean) => void;
   setPreferences: (prefs: SessionPreferences) => Promise<boolean>;
 }
 
@@ -141,6 +143,7 @@ export const useApp = create<AppState>((set, get) => {
     toasts: [],
     draft: "",
     paletteOpen: false,
+    tourOpen: false,
 
     connect: async () => {
       const info = await act("connect", () => call<BridgeInfo>("system.initialize", { client: "saarathi-desktop", protocol: 1 }));
@@ -306,6 +309,7 @@ export const useApp = create<AppState>((set, get) => {
     dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
     setDraft: (draft) => set({ draft }),
     setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+    setTourOpen: (tourOpen) => set({ tourOpen, paletteOpen: false, inspector: null }),
     setAppearance: (change) => {
       const appearance = { ...get().appearance, ...change };
       applyAppearance(appearance);

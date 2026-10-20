@@ -8,7 +8,7 @@ import { type Page, useApp } from "../store/app";
 
 const PAGES: { id: Page; label: string; icon: typeof Settings }[] = [
   { id: "usage", label: "Usage", icon: BarChart3 },
-  { id: "permissions", label: "Permissions", icon: ShieldCheck },
+  { id: "permissions", label: "Policy", icon: ShieldCheck },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 import { Button, Mark, SOFT, SPRING, StatePill, Switch } from "./primitives";
@@ -45,7 +45,7 @@ export function Sidebar() {
       </button>
 
       <div className="px-2 pt-1">
-        <Button tone="primary" className="w-full justify-center" onClick={() => void createSession()}>
+        <Button tone="primary" className="w-full justify-center" data-tour="new-session" onClick={() => void createSession()}>
           <MessageSquarePlus className="size-4" /> New session <span className="ml-1 text-[11px] opacity-70">⌘N</span>
         </Button>
         <label className="mt-2 flex h-8 items-center gap-2 rounded-lg border border-line bg-bg/60 px-2 focus-within:border-accent/60">
@@ -55,7 +55,7 @@ export function Sidebar() {
         </label>
       </div>
 
-      <nav className="mt-2 flex-1 overflow-y-auto px-2" aria-label="Sessions">
+      <nav className="mt-2 flex-1 overflow-y-auto px-2" aria-label="Sessions" data-tour="sessions">
         {sessions.length === 0 && (busy.sessions ? (
           <div className="space-y-3 px-2 py-2" role="status" aria-busy="true" aria-label="Loading sessions">
             {[0, 1, 2].map((i) => <div key={i}><Skeleton className="mb-1.5 w-3/4" /><Skeleton className="h-2.5 w-1/3" /></div>)}
@@ -102,6 +102,7 @@ export function Sidebar() {
       <nav className="border-t border-line px-2 py-1.5" aria-label="Project">
         {PAGES.map(({ id, label, icon: Icon }) => (
           <button key={id} type="button" onClick={() => setPage(id)} aria-current={page === id ? "page" : undefined}
+            data-tour={id === "permissions" ? "nav-policy" : `nav-${id}`}
             className={cn("relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px]",
               page === id ? "text-ink" : "text-muted hover:bg-raised/50 hover:text-ink")}>
             {page === id && (

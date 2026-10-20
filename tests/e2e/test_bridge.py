@@ -328,3 +328,23 @@ def test_plan_limits_are_read_in_the_background(client, repo, tmp_path):
         result = client.ok("usage.limits", project=project)
     assert not result["pending"] and result["limits"] == [], "test adapters report no plan limits"
     assert client.ok("usage.limits", project=project)["pending"] is False, "a fresh result is reused"
+
+
+def test_policy_can_be_changed_from_the_app_with_a_preview_first(client, repo, tmp_path):
+    project = setup_project(repo, tmp_path, {})
+    before = (repo / ".saarathi" / "policies.yaml").read_text()
+    preview = client.ok("policy.update", project=project, changes={"routing.max_parallel_workers": 1})
+    assert preview == {"summary": ["routing.max_parallel_workers: 2 → 1"], "warnings": [], "written": False}
+    assert (repo / ".saarathi" / "policies.yaml").read_text() == before, "a preview writes nothing"
+
+    loosen = client.ok("policy.update", project=project, changes={"permissions.allow_network": True})
+    assert loosen["warnings"] == ["Workers will be able to reach the network."]
+    saved = client.ok("policy.update", project=project, changes={"permissions.allow_network": True}, dry_run=False)
+    assert saved["written"] and (repo / ".saarathi" / "policy-backups").exists()
+    view = client.ok("policy.get", project=project)
+    assert view["editable"]["permissions.allow_network"] is True, "the bridge reloads the saved policy"
+    assert view["editable"]["orchestration.lead"] == "fake-claude:opus"
+    assert any(c["candidate"] == "fake-codex:default" for c in view["lead_candidates"]) is False, "defaults cannot lead"
+
+    refused = client.call("policy.update", project=project, changes={"billing.api_enabled": True}, dry_run=False)
+    assert refused["error"]["data"]["kind"] == "invalid_params" and "cannot be changed" in refused["error"]["message"]

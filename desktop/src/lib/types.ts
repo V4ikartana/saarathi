@@ -350,6 +350,17 @@ export interface PolicyView {
   integrations: Record<string, unknown>;
   execution: Record<string, unknown>;
   workers: WorkerPolicy[];
+  lead_candidates: { candidate: string; tier: string; available: boolean; reason: string | null }[];
+  addable_adapters: string[];
+  /** Current values of every setting the app may change (dotted keys, see saarathi/policy_edit.py). */
+  editable: Record<string, string | number | boolean | string[] | null>;
+}
+
+export interface PolicyPreview {
+  summary: string[];
+  warnings: string[];
+  written: boolean;
+  backup?: string;
 }
 
 export interface UsageRow {

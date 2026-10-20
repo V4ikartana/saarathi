@@ -1,5 +1,5 @@
 // ⌘K: jump to a session or page, or run an action, without leaving the keyboard.
-import { BarChart3, CornerDownLeft, MessageSquare, MessageSquarePlus, Moon, PanelRight, Search, Settings, ShieldCheck, Sun } from "lucide-react";
+import { BarChart3, Compass, CornerDownLeft, MessageSquare, MessageSquarePlus, Moon, PanelRight, Search, Settings, ShieldCheck, Sun } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
@@ -34,8 +34,9 @@ export function CommandPalette() {
         run: close(() => setAppearance({ theme: appearance.theme === "dark" ? "light" : "dark" })) },
       { id: "panel", label: appearance.showExecution ? "Hide the execution panel" : "Show the execution panel", group: "Actions",
         icon: <PanelRight className="size-4" />, run: close(() => setAppearance({ showExecution: !appearance.showExecution })) },
+      { id: "tour", label: "Take the tour", group: "Actions", icon: <Compass className="size-4" />, run: close(() => useApp.getState().setTourOpen(true)) },
       { id: "usage", label: "Usage and plan limits", group: "Go to", icon: <BarChart3 className="size-4" />, run: close(() => setPage("usage")) },
-      { id: "permissions", label: "Permissions", group: "Go to", icon: <ShieldCheck className="size-4" />, run: close(() => setPage("permissions")) },
+      { id: "permissions", label: "Policy and engineering lead", group: "Go to", icon: <ShieldCheck className="size-4" />, run: close(() => setPage("permissions")) },
       { id: "settings", label: "Settings", group: "Go to", icon: <Settings className="size-4" />, hint: "⌘,", run: close(() => setPage("settings")) },
       ...sessions.map((s) => ({
         id: `session:${s.id}`, label: s.title, group: "Sessions", icon: <MessageSquare className="size-4" />,

@@ -112,6 +112,16 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 - Claude's "You've hit your session limit" and "requires usage credits" are classified as plan limits, and a lead that
   hits its plan limit pauses the run with who is limited and what to do (resume after the reset, or set
   `orchestration.lead_substitute`).
+- Policy editing without the file: the desktop Policy page (formerly Permissions) edits the engineering lead and its
+  substitute, the approval ceiling, providers (enable, allow, add an installed CLI), routing, worker permissions,
+  attempt and time limits, and integration rules. Every change is previewed, warnings list anything that loosens what
+  agents may do (confirmation required), the engine validates the result before saving, the old file is backed up to
+  `.saarathi/policy-backups/`, comments in `policies.yaml` are kept, and a `policy.updated` event records it. CLI:
+  `saarathi policy set KEY VALUE`. Bridge: `policy.update` (dry run by default).
+- Desktop: Enter sends a request and Shift+Enter adds a line; a first-launch guided tour (replay from Settings or ⌘K);
+  the session controls show a loading state while the provider CLIs answer.
+- Fixed: on a machine booted less than ten minutes earlier, the first plan-limits read was skipped because "never
+  read" was stored as monotonic time 0.
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now

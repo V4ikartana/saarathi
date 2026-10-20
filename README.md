@@ -63,7 +63,9 @@ examples/health-widget/demo.sh codex-only       # hosts without Claude Code
 |---|---|
 | `saarathi run BRIEF [--non-interactive] [--accept-defaults]` | Start a run |
 | `saarathi run BRIEF --approvals auto_safe` / `--prefer-model A:M` / `--pin-model A:M` | Delegate plan and review approval within `approvals.max_preset`; prefer or pin a worker model (ADR-0014) |
-| `saarathi usage [--json]` | Tokens and costs per model and run, as providers reported them |
+| `saarathi usage [--json]` / `limits` | Tokens and costs per model and run; remaining plan usage per provider |
+| `saarathi policy set KEY VALUE` | Change one policy setting (e.g. `lead claude-code:sonnet`): validated, backed up, logged |
+| `saarathi models disable/enable ADAPTER:MODEL` | Turn a model off or on in every project |
 | `saarathi status` / `tasks` | Run and task state (`--json` available) |
 | `saarathi answer Q1 "..."` | Answer a clarification question |
 | `saarathi approve` | Approve the plan, an escalation's ADR change, or the final review |

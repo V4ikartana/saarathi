@@ -81,7 +81,7 @@ export function Kbd({ children }: { children: ReactNode }) {
 
 /** Choose one of a few options; the selection slides between them. */
 export function Segmented<T extends string | number>({
-  options, value, onChange, label, className, size = "md",
+  options, value, onChange, label, className, size = "md", "data-tour": tour,
 }: {
   options: { value: T; label: ReactNode }[];
   value: T;
@@ -89,16 +89,17 @@ export function Segmented<T extends string | number>({
   label: string;
   className?: string;
   size?: "sm" | "md";
+  "data-tour"?: string;
 }) {
   const id = useId();
   return (
-    <div role="radiogroup" aria-label={label}
+    <div role="radiogroup" aria-label={label} data-tour={tour}
       className={cn("relative flex gap-0.5 rounded-lg bg-raised p-0.5", size === "sm" ? "text-[12px]" : "text-[13px]", className)}>
       {options.map((o) => {
         const active = o.value === value;
         return (
           <button key={String(o.value)} type="button" role="radio" aria-checked={active} onClick={() => onChange(o.value)}
-            className={cn("relative flex-1 rounded-md px-3 capitalize", size === "sm" ? "py-0.5" : "py-1",
+            className={cn("relative flex-1 rounded-md px-3", size === "sm" ? "py-0.5" : "py-1",
               active ? "text-ink" : "text-muted hover:text-ink")}>
             {active && (
               <motion.span layoutId={`seg-${id}`} transition={SPRING}
