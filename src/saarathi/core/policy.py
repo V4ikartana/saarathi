@@ -290,9 +290,11 @@ providers:
     enabled: true
     binary: null              # null = look up `claude` on PATH
     models:
-      # Documented Claude Code aliases. Tiers are your declaration, not a provider guarantee.
+      # Documented Claude Code aliases. Tiers are your declaration, not a provider guarantee. Undeclared aliases
+      # (haiku, fable) are discovered with tiers from Saarathi's model catalogue.
       - {id: opus, reasoning_tier: frontier}
       - {id: sonnet, reasoning_tier: balanced}
+      - {id: haiku, reasoning_tier: economy}
   codex-cli:
     enabled: true
     binary: null              # null = look up `codex` on PATH
@@ -300,13 +302,15 @@ providers:
       isolate_user_config: true   # pass --ignore-user-config (auth is still read by Codex itself)
     models:
       # "default" means the model selected by your Codex configuration; Codex does not report which.
-      # Other models are discovered from `codex debug models` (tier unknown). Declare one here to give it a tier.
+      # Other models are discovered from `codex debug models`, with tiers from Saarathi's model catalogue or Codex's
+      # own descriptions. Declare a model here to set its tier yourself.
       - {id: default, reasoning_tier: unknown}
   antigravity-cli:
     enabled: true
     binary: null              # null = look up `agy` on PATH
     models:
-      # Your account's models are discovered from `agy models` (tier unknown). Declare one here to give it a tier.
+      # Your account's models are discovered from `agy models`, with tiers from Saarathi's model catalogue. Declare a
+      # model here to set its tier yourself.
       - {id: default, reasoning_tier: unknown}
     # options: {discover_models: false}   # list only the models declared here (also for codex-cli)
 """

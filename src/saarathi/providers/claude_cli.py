@@ -20,6 +20,7 @@ from typing import Any
 from saarathi.core.contracts import Usage
 from saarathi.providers.base import (
     Check,
+    DiscoveredModel,
     ErrorKind,
     Invocation,
     InvocationMode,
@@ -46,6 +47,10 @@ WRITE_TOOLS = ("Read", "Glob", "Grep", "Edit", "Write")
 def parse_version(text: str) -> tuple[int, int, int] | None:
     match = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
     return (int(match.group(1)), int(match.group(2)), int(match.group(3))) if match else None
+
+
+# Documented aliases (Claude Code model configuration) plus ``fable`` from ``claude --help``.
+MODEL_ALIASES = ("opus", "sonnet", "haiku", "fable")
 
 
 class ClaudeCodeAdapter(ProviderAdapter):
@@ -102,6 +107,11 @@ class ClaudeCodeAdapter(ProviderAdapter):
         result.available = not failed
         if failed:
             result.reason = f"failed checks: {', '.join(failed)}"
+        elif self.discovery_enabled():
+            # Claude Code has no command that lists models; its documented aliases always resolve to the latest
+            # model of each family, so they are the discovered set.
+            result.discovered_models = [DiscoveredModel(alias) for alias in MODEL_ALIASES]
+            result.discovery_source = "Claude Code model aliases"
         if result.auth_method in SUBSCRIPTION_AUTH:
             result.notices.append(
                 "Claude Code is signed in with a Claude subscription. Anthropic's terms describe subscription"
@@ -192,10 +202,15 @@ def parse_claude_output(
             error="claude -p timed out",
             **base,
         )
-    try:
-        payload: dict[str, Any] = json.loads(stdout.strip().splitlines()[-1]) if stdout.strip() else {}
-    except (json.JSONDecodeError, IndexError):
-        payload = {}
+    payload: dict[str, Any] = {}
+    for line in reversed(stdout.strip().splitlines()):  # the result object; tolerate text printed after it
+        try:
+            candidate = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            payload = candidate
+            break
     raw_usage: dict[str, Any] = payload["usage"] if isinstance(payload.get("usage"), dict) else {}
     model_usage: dict[str, Any] = payload["modelUsage"] if isinstance(payload.get("modelUsage"), dict) else {}
     usage = Usage(

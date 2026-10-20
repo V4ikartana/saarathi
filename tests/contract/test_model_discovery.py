@@ -10,9 +10,11 @@ import pytest
 
 from saarathi.core.contracts import ReasoningTier
 from saarathi.core.policy import DeclaredModel, ProviderConfig
-from saarathi.providers import antigravity_cli, codex_cli
+from saarathi.providers import antigravity_cli, claude_cli, codex_cli
 from saarathi.providers.antigravity_cli import AntigravityCliAdapter
+from saarathi.providers.claude_cli import ClaudeCodeAdapter
 from saarathi.providers.codex_cli import CodexCliAdapter, parse_codex_models
+from saarathi.providers.model_catalog import classify
 
 CATALOG = {
     "models": [
@@ -65,7 +67,7 @@ def test_codex_lists_declared_then_discovered_models(monkeypatch):
     by_id = {m.id: m for m in models}
     assert by_id["gpt-6-sol"].capabilities.reasoning_tier is ReasoningTier.FRONTIER, "a declaration wins"
     found = by_id["gpt-6.1-sol"]
-    assert found.capabilities.reasoning_tier is ReasoningTier.UNKNOWN and found.available
+    assert found.capabilities.reasoning_tier is ReasoningTier.BALANCED and found.available
     assert found.metadata.source == "discovered: codex debug models" and "GPT-6.1-Sol" in found.metadata.notes
     assert not found.pricing.metered and found.candidate_id == "codex-cli:gpt-6.1-sol"
 
@@ -106,3 +108,80 @@ def test_antigravity_lists_offered_models_after_declared_ones(monkeypatch):
     flash = models["gemini-3.8-flash-high"]
     assert flash.available and flash.metadata.source == "discovered: agy models"
     assert "Gemini 3.8 Flash (High)" in flash.metadata.notes
+
+
+@pytest.mark.parametrize(
+    ("model_id", "tier"),
+    [
+        ("gpt-6-astra", ReasoningTier.FRONTIER),
+        ("gpt-7-astra", ReasoningTier.FRONTIER),  # a future release of a known family
+        ("gpt-6.1-sol", ReasoningTier.BALANCED),
+        ("gpt-5.6-terra", ReasoningTier.BALANCED),
+        ("gpt-6-luna", ReasoningTier.ECONOMY),
+        ("gpt-oss-120b-medium", ReasoningTier.ECONOMY),
+        ("opus", ReasoningTier.FRONTIER),
+        ("claude-opus-4-6-thinking", ReasoningTier.FRONTIER),
+        ("sonnet[1m]", ReasoningTier.BALANCED),
+        ("claude-sonnet-4-6", ReasoningTier.BALANCED),
+        ("haiku", ReasoningTier.ECONOMY),
+        ("gemini-3.8-pro", ReasoningTier.FRONTIER),
+        ("gemini-3.8-flash-high", ReasoningTier.BALANCED),
+        ("gemini-3.8-flash-low", ReasoningTier.ECONOMY),
+        ("gemini-3.8-flash-lite", ReasoningTier.ECONOMY),
+    ],
+)
+def test_catalogue_classifies_model_families(model_id, tier):
+    found = classify(model_id)
+    assert found is not None and found.tier is tier and "catalogue" in found.basis
+
+
+def test_unknown_models_stay_unknown_unless_the_provider_describes_them():
+    assert classify("mystery-9") is None
+    described = classify("mystery-9", "Frontier intelligence for the most demanding work.")
+    assert described is not None and described.tier is ReasoningTier.FRONTIER
+    assert described.basis.startswith("provider description")
+    assert classify("mystery-9", "Fast and affordable model for easier tasks.").tier is ReasoningTier.ECONOMY
+
+
+def test_discovered_codex_models_get_catalogue_tiers(monkeypatch):
+    fake_codex(monkeypatch, (0, json.dumps(CATALOG), ""))
+    adapter = CodexCliAdapter("codex-cli", ProviderConfig(models=[DeclaredModel(id="default")]))
+    models = {m.id: m for m in adapter.list_models()}
+    assert models["gpt-6.1-sol"].capabilities.reasoning_tier is ReasoningTier.BALANCED
+    assert "Saarathi model catalogue" in models["gpt-6.1-sol"].metadata.notes
+    assert models["default"].capabilities.reasoning_tier is ReasoningTier.UNKNOWN, "default is whatever Codex picks"
+
+
+def fake_claude(monkeypatch, auth_method="claude.ai"):
+    def run_quick(argv, env, timeout=20.0):
+        args = argv[1:]
+        if args == ["--version"]:
+            return 0, "2.1.302 (Claude Code)", ""
+        if args == ["auth", "status"]:
+            return 0, json.dumps({"authMethod": auth_method}), ""
+        raise AssertionError(f"unexpected command {args}")
+
+    monkeypatch.setattr(claude_cli, "run_quick", run_quick)
+    monkeypatch.setattr(ClaudeCodeAdapter, "_binary", lambda self: "/fake/claude")
+
+
+def test_claude_lists_its_aliases_and_marks_paid_models_unavailable(monkeypatch):
+    fake_claude(monkeypatch)
+    cfg = ProviderConfig(models=[DeclaredModel(id="opus", reasoning_tier="frontier")])
+    models = {m.id: m for m in ClaudeCodeAdapter("claude-code", cfg).list_models()}
+    assert list(models) == ["opus", "sonnet", "haiku", "fable"]
+    assert models["haiku"].available and models["haiku"].capabilities.reasoning_tier is ReasoningTier.ECONOMY
+    fable = models["fable"]
+    assert not fable.available and "usage credits" in fable.unavailable_reason and fable.pricing.metered
+
+
+def test_claude_result_is_found_even_with_text_printed_after_it():
+    result = claude_cli.parse_claude_output(
+        json.dumps({"type": "result", "is_error": False, "result": "ok", "structured_output": {"a": 1}})
+        + "\nSessionEnd hook finished\n",
+        "",
+        0,
+        False,
+        1.0,
+    )
+    assert result.ok and result.structured == {"a": 1}

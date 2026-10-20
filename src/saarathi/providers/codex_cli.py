@@ -60,8 +60,12 @@ def parse_codex_models(text: str) -> list[DiscoveredModel]:
         if entry.get("visibility") != "list" or not isinstance(slug, str):
             continue
         if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", slug):
-            name = entry.get("display_name")
-            found.append(DiscoveredModel(slug, name if isinstance(name, str) else None))
+            name, about = entry.get("display_name"), entry.get("description")
+            found.append(
+                DiscoveredModel(
+                    slug, name if isinstance(name, str) else None, about if isinstance(about, str) else None
+                )
+            )
     if not found:
         raise ValueError("`codex debug models` listed no models")
     return found

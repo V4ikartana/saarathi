@@ -23,6 +23,7 @@ from saarathi.core.contracts import (
     Usage,
 )
 from saarathi.core.policy import ProviderConfig
+from saarathi.providers.model_catalog import classify
 
 
 class InvocationMode(StrEnum):
@@ -84,6 +85,7 @@ class DiscoveredModel:
 
     id: str
     display_name: str | None = None
+    description: str | None = None  # the provider's own one-line description, when it gives one
 
 
 @dataclass
@@ -181,8 +183,9 @@ class ProviderAdapter(ABC):
     def list_models(self) -> list[ModelDescriptor]:
         """Declared models first, then models the CLI discovered for this account that are not declared.
 
-        A discovered model's reasoning tier is unknown until the policy declares it, so routing never assumes it is
-        strong; a person can still prefer or pin it.
+        Tiers: a tier declared in the policy wins. Otherwise the model catalogue (vendor documentation) or the
+        provider's own description classifies the model; anything unclassified stays "unknown" and is never assumed
+        strong. A model a subscription charges for separately is listed but unavailable, since v0.1 is unmetered.
         """
         probe = self.probe()
         out: list[ModelDescriptor] = []
@@ -195,33 +198,45 @@ class ProviderAdapter(ABC):
                 if found.id in declared_ids:
                     continue
                 label = f"{found.display_name}; " if found.display_name else ""
+                source = f"discovered: {probe.discovery_source or 'provider CLI'}"
                 out.append(
                     self._descriptor(
-                        probe,
-                        found.id,
-                        ReasoningTier.UNKNOWN,
-                        1,
-                        f"discovered: {probe.discovery_source or 'provider CLI'}",
-                        f"{label}{notes}",
+                        probe, found.id, ReasoningTier.UNKNOWN, 1, source, f"{label}{notes}", found.description
                     )
                 )
         return out
 
     def _descriptor(
-        self, probe: ProbeResult, model_id: str, tier: ReasoningTier, max_parallel: int, source: str, notes: str
+        self,
+        probe: ProbeResult,
+        model_id: str,
+        tier: ReasoningTier,
+        max_parallel: int,
+        source: str,
+        notes: str,
+        description: str | None = None,
     ) -> ModelDescriptor:
+        available = probe.available and self.config.enabled
+        reason = None if probe.available else probe.reason
+        metered = probe.metered is not False  # unknown metering (no auth info) is treated as metered
+        found = classify(model_id, description) if model_id != "default" else None
+        if found is not None:
+            if tier is ReasoningTier.UNKNOWN:
+                tier = found.tier
+                notes = f"tier from {found.basis}; {notes}"
+            if found.paid_on_subscription and probe.auth_method not in ("api_key",):
+                available, reason, metered = False, found.paid_on_subscription, True
         caps = self.base_capabilities.model_copy(update={"reasoning_tier": tier})
         return ModelDescriptor(
             id=model_id,
             provider=self.provider,
             adapter=self.name,
             transport=self.transport,
-            available=probe.available and self.config.enabled,
-            unavailable_reason=None if probe.available else probe.reason,
+            available=available,
+            unavailable_reason=reason,
             capabilities=caps,
             constraints=ModelConstraints(max_parallel=max_parallel),
-            # Unknown metering (no auth info) is treated as metered: never assume free.
-            pricing=ModelPricing(metered=probe.metered is not False),
+            pricing=ModelPricing(metered=metered),
             metadata=ModelMetadata(source=source, checked_at=datetime.fromisoformat(probe.checked_at), notes=notes),
         )
 

@@ -81,6 +81,13 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   `agy models` are listed after the declared models, labelled as discovered with an unknown reasoning tier. A
   declaration in the policy always wins, any discovery failure falls back to the declared models with a notice, and
   `options.discover_models: false` turns it off per adapter.
+- Model tiers and Claude aliases: discovered models get a reasoning tier from a model catalogue built from vendor
+  documentation (OpenAI Astra/Sol/Terra/Luna, Gemini Pro/Flash, Claude Opus/Sonnet/Haiku), or from Codex's own model
+  descriptions; unmatched models stay "unknown". Claude Code lists its aliases (`opus`, `sonnet`, `haiku`, `fable`);
+  `haiku` is in the default policy, and Fable is shown as unavailable because subscriptions charge usage credits for
+  it. The Claude output parser now finds the result object even if text is printed after it. With known tiers the
+  router can choose discovered models on its own, within `routing.allowed_models`; restrict them with
+  `routing.denied_models` or turn discovery off per adapter with `options.discover_models: false`.
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now
