@@ -34,8 +34,11 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "runs.stop",
     "runs.cancel",
     "runs.resume",
+    "runs.timeline",
     "tasks.diff",
     "tasks.logs",
+    "tasks.inspect",
+    "tasks.file",
     "models.list",
     "providers.status",
     "subscribe",
@@ -121,9 +124,10 @@ impl BridgeState {
                 let is_response = msg.get("id").is_some() && msg.get("method").is_none();
                 if is_response {
                     if let Some(id) = msg.get("id").and_then(Value::as_u64)
-                        && let Some(tx) = pending.lock().unwrap().remove(&id) {
-                            let _ = tx.send(msg);
-                        }
+                        && let Some(tx) = pending.lock().unwrap().remove(&id)
+                    {
+                        let _ = tx.send(msg);
+                    }
                 } else {
                     let _ = app_out.emit("bridge://notification", msg);
                 }

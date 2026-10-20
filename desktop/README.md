@@ -5,10 +5,11 @@ action goes through `saarathi bridge --stdio` (JSON-RPC, protocol 1, no network 
 [ADR-0013](../docs/architecture/decisions/ADR-0013-desktop-bridge.md) and
 [the architecture](../docs/desktop/architecture.md)).
 
-> **Status: v0.1 foundation (milestones M1–M2).** Open a repository, manage sessions, send a request, watch real
-> engine events stream in, answer the lead's questions, approve the plan and final review, stop, cancel and resume
-> runs, and see sessions restored after a restart. Diffs, logs, provider and model controls, approval presets and
-> packaging come in M3–M5.
+> **Status: v0.1 (milestones M1–M3).** Open a repository, manage sessions, send a request, watch real engine events
+> stream in, answer the lead's questions, approve the plan and final review, stop, cancel and resume runs, and see
+> sessions restored after a restart. Inspect any task (attempts, verification evidence, routing decisions, Monaco
+> diffs, xterm.js logs) and follow the run on a timeline. Provider and model controls, approval presets and packaging
+> come in M4–M5.
 
 ## Requirements
 
@@ -32,6 +33,7 @@ inherit your shell's PATH, and provider CLIs installed through `fnm`, `nvm` or `
 
 ```bash
 npm run typecheck && npm test && npx vite build
+cargo fmt --manifest-path src-tauri/Cargo.toml --check
 cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
@@ -48,5 +50,7 @@ The engine side of the desktop app (sessions, runs, cancellation, restart and re
   and worktrees are kept.
 - A project runs one request at a time. A second session's request waits until the first is finished, stopped or
   cancelled.
+- The task inspector, timeline, diffs and logs are read-only views of what the engine recorded. A diff shows the
+  task's committed change; while the task has not passed verification it is marked as not accepted.
 - Everything shown comes from the engine's records and events. The app never invents progress or reasoning, and it does
   not stream model text (the provider adapters return final results).

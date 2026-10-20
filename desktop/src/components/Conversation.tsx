@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
 import type { ConversationEntry, PlannedTask, Question, RunSnapshot } from "../lib/types";
+import { latestRun } from "../lib/types";
 import { cn, timeOf } from "../lib/ui";
 import { useApp } from "../store/app";
 import { Button } from "./primitives";
@@ -27,19 +28,34 @@ function UserMessage({ entry }: { entry: ConversationEntry }) {
 /** One real engine event. Concise by default; technical detail on demand. */
 function ActivityRow({ entry }: { entry: ConversationEntry }) {
   const [open, setOpen] = useState(false);
+  const openTask = useApp((s) => s.openTask);
+  const taskId = entry.task_id;
+  const runId = entry.run_id;
   const hasDetail = Boolean(entry.detail) || entry.kind === "delegation";
   const icon = entry.kind === "delegation" ? <GitBranch className="size-3.5 text-accent" />
     : entry.kind === "security" ? <ShieldAlert className="size-3.5 text-err" />
     : LEVEL_ICON[entry.level ?? "info"];
   return (
     <div className="group">
-      <button type="button" disabled={!hasDetail} onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-[13px] text-muted enabled:hover:bg-raised/60">
-        {icon}
-        <span className={cn("min-w-0 flex-1 truncate", entry.level === "error" && "text-err")}>{entry.title}</span>
+      <div className="flex items-center gap-1 rounded-md hover:bg-raised/60">
+        <button type="button" disabled={!hasDetail} onClick={() => setOpen(!open)}
+          className="flex min-w-0 flex-1 items-center gap-2 px-1 py-1 text-left text-[13px] text-muted">
+          {icon}
+          <span className={cn("min-w-0 flex-1 truncate", entry.level === "error" && "text-err")}>{entry.title}</span>
+        </button>
+        {taskId && runId && (
+          <button type="button" onClick={() => openTask(runId, taskId)}
+            className="rounded px-1 text-[11px] text-accent opacity-0 hover:underline focus-visible:opacity-100 group-hover:opacity-100">
+            Inspect {taskId}
+          </button>
+        )}
         <span className="text-[11px] text-faint">{timeOf(entry.ts)}</span>
-        {hasDetail && <ChevronRight className={cn("size-3.5 text-faint transition-transform", open && "rotate-90")} />}
-      </button>
+        {hasDetail && (
+          <button type="button" aria-label={open ? "Hide detail" : "Show detail"} onClick={() => setOpen(!open)} className="px-1">
+            <ChevronRight className={cn("size-3.5 text-faint transition-transform", open && "rotate-90")} />
+          </button>
+        )}
+      </div>
       {open && entry.detail && (
         <div className="ml-6 mb-1 whitespace-pre-wrap rounded-md bg-raised px-3 py-2 font-mono text-[12px] text-muted">
           {entry.detail}
@@ -157,7 +173,7 @@ export function Conversation() {
       </div>
     );
   }
-  const lastRun = Object.values(view.runs).at(-1);
+  const lastRun = latestRun(view);
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto flex max-w-3xl flex-col gap-2 px-6 py-6">

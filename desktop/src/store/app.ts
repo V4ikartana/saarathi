@@ -23,6 +23,14 @@ function saveRecent(paths: string[]): void {
   }
 }
 
+export type InspectorTab = "overview" | "attempts" | "routing" | "changes" | "logs";
+
+export interface Inspector {
+  runId: string;
+  taskId: string;
+  tab: InspectorTab;
+}
+
 export interface Notice {
   kind: string;
   message: string;
@@ -41,6 +49,10 @@ interface AppState {
   view: SessionView | null;
   busy: Record<string, boolean>;
   notice: Notice | null;
+  /** Bumped once per burst of engine events for the open project; inspection views refetch on it. */
+  eventTick: number;
+  centerTab: "conversation" | "timeline";
+  inspector: Inspector | null;
 
   connect: () => Promise<void>;
   openProject: (path: string) => Promise<void>;
@@ -61,6 +73,11 @@ interface AppState {
   cancel: (runId: string) => Promise<void>;
   resume: (runId: string) => Promise<void>;
   dismissNotice: () => void;
+  bumpEvents: () => void;
+  setCenterTab: (tab: "conversation" | "timeline") => void;
+  openTask: (runId: string, taskId: string, tab?: InspectorTab) => void;
+  setInspectorTab: (tab: InspectorTab) => void;
+  closeInspector: () => void;
 }
 
 export const useApp = create<AppState>((set, get) => {
@@ -92,6 +109,9 @@ export const useApp = create<AppState>((set, get) => {
     view: null,
     busy: {},
     notice: null,
+    eventTick: 0,
+    centerTab: "conversation",
+    inspector: null,
 
     connect: async () => {
       const info = await act("connect", () => call<BridgeInfo>("system.initialize", { client: "saarathi-desktop", protocol: 1 }));
@@ -105,7 +125,7 @@ export const useApp = create<AppState>((set, get) => {
       if (!info) return;
       const recent = [info.root, ...get().recent.filter((p) => p !== info.root)];
       saveRecent(recent);
-      set({ project: info, recent, activeSessionId: null, view: null, sessions: [] });
+      set({ project: info, recent, activeSessionId: null, view: null, sessions: [], inspector: null });
       if (info.initialized) {
         await call("subscribe", { project: info.root }).catch(() => undefined);
         await get().refreshSessions();
@@ -122,7 +142,7 @@ export const useApp = create<AppState>((set, get) => {
     closeProject: () => {
       const r = root();
       if (r) void call("unsubscribe", { project: r }).catch(() => undefined);
-      set({ project: null, sessions: [], activeSessionId: null, view: null });
+      set({ project: null, sessions: [], activeSessionId: null, view: null, inspector: null });
     },
 
     refreshSessions: async () => {
@@ -146,7 +166,7 @@ export const useApp = create<AppState>((set, get) => {
 
     selectSession: async (id) => {
       // Switching only changes what is displayed; running drivers are untouched.
-      set({ activeSessionId: id, view: null });
+      set({ activeSessionId: id, view: null, inspector: null });
       if (id) await get().refreshView();
     },
 
@@ -226,5 +246,11 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     dismissNotice: () => set({ notice: null }),
+    bumpEvents: () => set((s) => ({ eventTick: s.eventTick + 1 })),
+    setCenterTab: (centerTab) => set({ centerTab }),
+    openTask: (runId, taskId, tab) =>
+      set((s) => ({ inspector: { runId, taskId, tab: tab ?? s.inspector?.tab ?? "overview" } })),
+    setInspectorTab: (tab) => set((s) => (s.inspector ? { inspector: { ...s.inspector, tab } } : {})),
+    closeInspector: () => set({ inspector: null }),
   };
 });

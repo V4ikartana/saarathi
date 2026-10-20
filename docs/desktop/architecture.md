@@ -79,7 +79,7 @@ JSON-RPC 2.0, one JSON object per line on stdout. stderr is for logs only. Every
 | `projects.open {path}` | Validate a Git repo; report whether it is initialized, plus its policy and lead |
 | `projects.init {path}` | `saarathi init` equivalent |
 | `sessions.list {project, include_archived}` / `sessions.create {project, title}` / `sessions.rename` / `sessions.archive` / `sessions.search {project, query}` | Session management |
-| `sessions.get {session}` | Items, linked runs, current run snapshot |
+| `sessions.get {session}` | Items, linked runs, run snapshots and an explicit `run_order` (JSON key order is not preserved across the Rust shell) |
 | `sessions.send {session, text, idempotency_key}` | Start a run with this brief, or answer open questions |
 | `runs.status {run}` / `runs.tasks {run}` / `runs.events {run, since_seq}` | Snapshots |
 | `runs.approve {run}` | Approve the plan, a pending escalation or the final review (engine decides which) |
@@ -87,7 +87,10 @@ JSON-RPC 2.0, one JSON object per line on stdout. stderr is for logs only. Every
 | `runs.stop {run}` | Graceful: stop dispatching; in-flight attempts finish, then the run pauses |
 | `runs.cancel {run}` | Interrupt the driver (a stored interrupt request every driver polls, plus SIGINT on POSIX; Windows cannot signal a detached process), wait for it to pause, then mark the run `CANCELLED` |
 | `runs.resume {run}` | Start a driver for a paused or crashed run |
-| `tasks.diff {run, task}` / `tasks.logs {run, task}` | Git diff of a task branch against its base; redacted logs |
+| `tasks.diff {run, task}` / `tasks.logs {run, task}` | Git diff (with per-file numstat) of a task's latest commit against its base; redacted process and verification logs plus the task's events |
+| `tasks.inspect {run, task}` | Task packet and state, every attempt with Saarathi's assessment, every routing decision |
+| `tasks.file {run, task, path}` | Base and committed versions of one file, for a side-by-side diff; only paths in the task's own diff |
+| `runs.timeline {run}` | Tasks with dependency depth and every attempt's start and end, for the DAG timeline |
 | `models.list {project}` / `providers.status {project}` | Catalogue, availability, cooldowns |
 | `subscribe {project}` / `unsubscribe` | Start or stop `events/appended` notifications |
 
@@ -119,7 +122,9 @@ returns the first result, so a double click or replay never starts two runs.
 
 Status (2026-10-20): **M1 done** (bridge with end-to-end tests). **M2 done**: verified by driving a full run through the
 real app on macOS (open repo → session → request → plan approval → execution → review → completion → restart
-restores the session). Windows and Linux are compile- and test-checked in CI only.
+restores the session). **M3 done**: task inspector, run timeline, Monaco diffs and xterm.js logs, checked in the real
+app on macOS against a completed run and a run with a dependency chain, a retried task that failed verification and a
+blocked task (fake providers). Windows and Linux are compile- and test-checked in CI only.
 
 | # | Milestone | Validated by |
 |---|---|---|

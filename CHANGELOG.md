@@ -61,8 +61,18 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   sessions (migration 5), detached run drivers, live event notifications, stop/cancel/resume, idempotent sends
   and approvals; a Tauri 2 + React app over it with projects, sessions, the conversation and run controls, and an
   execution panel. CI builds and tests the desktop app on Linux, macOS and Windows.
+- Desktop M3, orchestration visibility: a task inspector (objective, criteria, paths, attempts with Saarathi's
+  verification evidence, changed files, usage as reported, every routing decision with scores and filtered-out
+  candidates), a run timeline (task graph by dependency depth and attempt spans), side-by-side Monaco diffs of a
+  task's change and an xterm.js log viewer. New read-only bridge methods: `tasks.inspect`, `tasks.file` (only paths
+  in the task's own diff) and `runs.timeline`; `tasks.logs` re-redacts on read. Monaco and xterm.js are bundled
+  locally (no network under the CSP).
 
 ### Fixed
+- Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now
+  poll a stored interrupt request, and POSIX still also gets SIGINT.
+- Desktop: a session with several runs showed the alphabetically last run as current, because JSON object key order
+  does not survive the Rust shell. `sessions.get` now returns an explicit `run_order`.
 - The command policy now recognises versioned and Windows program names (`python3.12 -c`, `Python.EXE -c`,
   `cmd /c`, PowerShell `-Command`) and drive-letter paths.
 - Unblocking a task on resume no longer makes it READY before its dependencies have succeeded.

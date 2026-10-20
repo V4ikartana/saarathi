@@ -107,6 +107,14 @@ export interface SessionView {
   session: SessionSummary;
   conversation: ConversationEntry[];
   runs: Record<string, RunSnapshot>;
+  /** Oldest first. Object key order is not preserved across the bridge, so never infer order from `runs`. */
+  run_order: string[];
+}
+
+/** The session's most recent run, or undefined before its first request. */
+export function latestRun(view: SessionView | null | undefined): RunSnapshot | undefined {
+  const id = view?.run_order.at(-1);
+  return id ? view?.runs[id] : undefined;
 }
 
 export interface BridgeErrorData {
@@ -120,4 +128,155 @@ export interface EventsAppended {
   project: string;
   events: { seq: number; run_id: string | null; type: string }[];
   runs: string[];
+}
+
+// ---- M3: task inspection (tasks.inspect, tasks.diff, tasks.file, tasks.logs, runs.timeline)
+
+export interface Usage {
+  input_tokens: number | null;
+  cached_input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+  cost_is_estimate: boolean;
+  reported_model: string | null;
+}
+
+export interface CommandEvidence {
+  command: string;
+  exit_code: number | null;
+  duration_s: number;
+  timed_out: boolean;
+  output_tail: string;
+  log_path: string | null;
+  rejected_reason: string | null;
+}
+
+export interface WorkerReport {
+  status: "succeeded" | "failed" | "blocked";
+  summary: string;
+  changed_files: string[];
+  tests_run: string[];
+  assumptions: string[];
+  unresolved_risks: string[];
+  memory_proposals: string[];
+}
+
+/** Saarathi's own assessment of an attempt, built from Git state and verification. */
+export interface WorkerResult {
+  status: "succeeded" | "failed";
+  failure_reason: string | null;
+  adapter: string;
+  provider: string;
+  model: string;
+  commit: string | null;
+  changed_files: string[];
+  scope_violations: string[];
+  checkout_modified: boolean;
+  verification: CommandEvidence[];
+  worker_report: WorkerReport | null;
+  usage: Usage;
+  error_kind: string | null;
+  received_inputs: string[];
+}
+
+export interface Attempt {
+  id: string;
+  task_id: string;
+  number: number;
+  status: string; // running | finished | abandoned
+  outcome: string | null; // succeeded | failed | escalated | cancelled | orphaned
+  adapter: string;
+  provider: string;
+  model: string;
+  transport: string;
+  routing_decision_id: string;
+  base_commit: string;
+  feedback: string | null;
+  result: Partial<WorkerResult> | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface RoutingDecision {
+  decision_id: string;
+  task_id: string;
+  chosen: string | null;
+  provider: string | null;
+  model: string | null;
+  adapter: string | null;
+  transport: string | null;
+  reason: string;
+  score_breakdown: Record<string, number>;
+  alternatives: string[];
+  cooling: string[];
+  available_at: string | null;
+  busy: string[];
+  rejected: { candidate: string; reasons: string[] }[];
+  estimated_cost_usd: number | null;
+  awaiting: "account_selection" | "approval" | null;
+  integration: Record<string, unknown> | null;
+}
+
+export interface TaskInspection {
+  task: PlannedTask & {
+    acceptance_criteria: string[];
+    required_capabilities: string[];
+    max_attempts: number;
+    state: string;
+    attempts: number;
+    failures: number;
+    branch: string | null;
+    worktree: string | null;
+    blocked_reason: string | null;
+    result: { commit?: string; failure_reason?: string } | null;
+    updated_at: string;
+  };
+  attempts: Attempt[];
+  decisions: RoutingDecision[];
+}
+
+export interface DiffFile {
+  path: string;
+  added: number | null;
+  deleted: number | null;
+  binary: boolean;
+}
+
+export interface TaskDiff {
+  commit: string | null;
+  base: string | null;
+  diff: string;
+  files: DiffFile[];
+}
+
+export interface FileVersions {
+  path: string;
+  binary: boolean;
+  original: string;
+  modified: string;
+  truncated: boolean;
+}
+
+export interface EngineEvent {
+  seq: number;
+  ts: string;
+  actor: string;
+  type: string;
+  task_id: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface TaskLogs {
+  logs: { name: string; text: string; truncated: boolean }[];
+  events: EngineEvent[];
+}
+
+export interface Timeline {
+  run_id: string;
+  state: RunState;
+  created_at: string;
+  updated_at: string;
+  now: string;
+  tasks: { id: string; title: string; state: string; dependencies: string[]; depth: number }[];
+  attempts: Pick<Attempt, "id" | "task_id" | "number" | "status" | "outcome" | "adapter" | "model" | "started_at" | "finished_at">[];
 }

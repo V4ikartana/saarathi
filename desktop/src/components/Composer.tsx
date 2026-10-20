@@ -1,12 +1,13 @@
 import { ArrowUp, Pause, Play, Square } from "lucide-react";
 import { useState } from "react";
 
+import { latestRun } from "../lib/types";
 import { useApp } from "../store/app";
 import { Button, Kbd, StatePill } from "./primitives";
 
 export function RunBar() {
   const { view, stop, cancel, resume, busy } = useApp();
-  const run = view ? Object.values(view.runs).at(-1) : undefined;
+  const run = latestRun(view);
   if (!run || run.terminal) return null;
   const driving = run.driver.running;
   const waitingOnYou = run.pending_approval !== null || run.state === "CLARIFYING";
@@ -39,7 +40,7 @@ export function Composer() {
   const { view, send, busy } = useApp();
   const [text, setText] = useState("");
   const [acceptDefaults, setAcceptDefaults] = useState(false);
-  const run = view ? Object.values(view.runs).at(-1) : undefined;
+  const run = latestRun(view);
   const locked = Boolean(run && !run.terminal);
   const submit = async () => {
     if (!text.trim() || locked) return;

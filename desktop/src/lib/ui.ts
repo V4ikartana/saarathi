@@ -29,3 +29,36 @@ export function timeOf(ts: string): string {
   const d = new Date(ts);
   return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+export function durationMs(start: string, end: string | null, now = Date.now()): number {
+  const a = Date.parse(start);
+  const b = end ? Date.parse(end) : now;
+  return Number.isNaN(a) || Number.isNaN(b) ? 0 : Math.max(0, b - a);
+}
+
+export function fmtDuration(ms: number): string {
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/** Token counts as the provider reported them; null stays "not reported", never zero. */
+export function fmtTokens(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "not reported";
+  return n >= 10_000 ? `${(n / 1000).toFixed(1)}k` : n.toLocaleString();
+}
+
+export function shortSha(sha: string | null | undefined): string {
+  return sha ? sha.slice(0, 8) : "";
+}
+
+export const OUTCOME_TONE: Record<string, "ok" | "warn" | "err" | "busy" | "idle"> = {
+  succeeded: "ok",
+  failed: "err",
+  escalated: "warn",
+  cancelled: "warn",
+  orphaned: "warn",
+};
