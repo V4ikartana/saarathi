@@ -50,6 +50,8 @@ class RoutingConfig(Strict):
     max_parallel_workers: int = Field(default=2, ge=1, le=16)
     escalate_after_failures: int = Field(default=2, ge=1)
     spread_across_providers: bool = True
+    # Skip a model while its provider reports less than this share of a plan window left (0 turns the check off).
+    min_remaining_percent: float = Field(default=5.0, ge=0, le=50)
     weights: RoutingWeights = Field(default_factory=RoutingWeights)
 
     def model_allowed(self, provider: str, model_key: str) -> tuple[bool, str | None]:
@@ -250,6 +252,7 @@ routing:
   max_parallel_workers: 2
   escalate_after_failures: 2
   spread_across_providers: true
+  min_remaining_percent: 5    # skip a model while its plan has less than this % left (from each CLI's usage command)
 
 billing:
   api_enabled: false          # must stay false in v0.1; CLIs signed in with an API key are blocked as metered

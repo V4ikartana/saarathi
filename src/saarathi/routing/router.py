@@ -53,6 +53,8 @@ class RuntimeLoad:
     history: dict[str, tuple[int, int]] = field(default_factory=dict)  # candidate_id -> (ok, finished)
     # adapter -> (state, until ISO time, reason) for adapters currently cooling down after provider limits
     cooldowns: dict[str, tuple[str, str, str]] = field(default_factory=dict)
+    # candidate_id -> (reset time ISO or None, reason) for models whose plan is nearly used up
+    near_limit: dict[str, tuple[str | None, str]] = field(default_factory=dict)
 
 
 def hard_filter(model: ModelDescriptor, req: RoutingRequest, policy: Policy) -> list[str]:
@@ -163,6 +165,14 @@ def route(
             cooling.append(model.candidate_id)
             cooling_notes[model.adapter] = f"{model.adapter} {state.replace('_', ' ')} until {until} ({why})"
             available_at = until if available_at is None else min(available_at, until)
+            continue
+        low = load.near_limit.get(model.candidate_id)
+        if low is not None:
+            resets, why = low
+            cooling.append(model.candidate_id)
+            cooling_notes[model.candidate_id] = f"{model.candidate_id} {why}"
+            if resets is not None:
+                available_at = resets if available_at is None else min(available_at, resets)
             continue
         if load.in_flight.get(model.candidate_id, 0) >= model.constraints.max_parallel:
             busy.append(model.candidate_id)

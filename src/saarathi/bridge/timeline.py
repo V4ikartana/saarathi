@@ -152,6 +152,17 @@ def render_event(event: EventRecord, run: RunRecord) -> dict[str, Any] | None:
             level="warn",
             detail=f"until {p.get('until')}: {p.get('reason')}",
         )
+    if t == "provider.near_limit":
+        return entry(
+            event,
+            "provider",
+            f"Skipping {p.get('candidate')}: {p.get('remaining_percent')}% of its {p.get('window')} left",
+            level="warn",
+            detail=(
+                f"Below routing.min_remaining_percent ({p.get('threshold')}%)."
+                f" Resets {p.get('resets') or 'at an unreported time'}."
+            ),
+        )
     if t.startswith("security."):
         return entry(event, "security", t.split(".", 1)[1].replace("_", " "), level="error", data=p)
     if t == "approval.automatic":

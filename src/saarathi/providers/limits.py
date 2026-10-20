@@ -30,10 +30,16 @@ class LimitWindow:
     resets_at: str | None = None  # ISO 8601 when the CLI gives a timestamp
     resets_text: str | None = None  # the CLI's own wording when it gives no timestamp
     window: str | None = None  # "5h", "weekly", "session" … when known
+    # Model families the window applies to (substrings of model ids); empty means every model of the provider.
+    scope: tuple[str, ...] = ()
 
     @property
     def remaining_percent(self) -> float:
         return max(0.0, 100.0 - self.used_percent)
+
+    def applies_to(self, model_id: str) -> bool:
+        lowered = model_id.lower()
+        return not self.scope or any(family in lowered for family in self.scope)
 
 
 @dataclass
@@ -60,6 +66,7 @@ class ProviderLimits:
                     "resets_at": w.resets_at,
                     "resets_text": w.resets_text,
                     "window": w.window,
+                    "scope": list(w.scope),
                 }
                 for w in self.windows
             ],
@@ -67,6 +74,15 @@ class ProviderLimits:
 
 
 # ---------------------------------------------------------------- Claude Code
+
+FAMILIES = ("gemini", "claude", "gpt", "opus", "sonnet", "haiku", "fable")
+
+
+def families_in(text: str) -> tuple[str, ...]:
+    """Model families named in a label such as "Claude and GPT models" or "Current week (Sonnet only)"."""
+    lowered = text.lower()
+    return tuple(f for f in FAMILIES if re.search(rf"\b{f}\b", lowered))
+
 
 _CLAUDE_LINE = re.compile(
     r"^\s*(?P<label>[^:\n]{2,60}):\s*(?P<pct>\d{1,3}(?:\.\d+)?)%\s+used(?:\s*·\s*resets\s+(?P<reset>.+))?$"
@@ -91,9 +107,9 @@ def parse_claude_usage(stdout: str) -> list[LimitWindow]:
             label = match["label"].strip()
             lowered = label.lower()
             kind = "weekly" if "week" in lowered else ("session" if "session" in lowered else None)
-            windows.append(
-                LimitWindow(label, float(match["pct"]), resets_text=(match["reset"] or "").strip() or None, window=kind)
-            )
+            scope = () if "all models" in lowered else families_in(label)
+            reset = (match["reset"] or "").strip() or None
+            windows.append(LimitWindow(label, float(match["pct"]), resets_text=reset, window=kind, scope=scope))
     if not windows:
         raise ValueError("`claude /usage` printed no usage lines")
     return windows
@@ -245,6 +261,7 @@ def parse_agy_usage(stdout: str) -> list[LimitWindow]:
                     (1.0 - float(fraction)) * 100.0,
                     resets_at=bucket.get("reset_time") if isinstance(bucket.get("reset_time"), str) else None,
                     window=kind if isinstance(kind, str) else None,
+                    scope=families_in(str(group.get("name", ""))),
                 )
             )
     if not windows:
@@ -265,3 +282,21 @@ def run_text(argv: Sequence[str], env: Mapping[str, str], timeout: float) -> str
     if proc.returncode != 0:
         raise ValueError((proc.stderr or proc.stdout).strip()[-200:] or f"exit {proc.returncode}")
     return proc.stdout
+
+
+def limits_from_options(adapter: str, raw: Any) -> ProviderLimits | None:
+    """Limits declared for a test adapter (``options.limits``): a list of window dicts."""
+    if not isinstance(raw, list):
+        return None
+    windows = [
+        LimitWindow(
+            str(w.get("label", "window")),
+            float(w.get("used_percent", 0)),
+            resets_at=w.get("resets_at"),
+            window=w.get("window"),
+            scope=tuple(w.get("scope", ())),
+        )
+        for w in raw
+        if isinstance(w, dict)
+    ]
+    return ProviderLimits(adapter, "test script", windows)

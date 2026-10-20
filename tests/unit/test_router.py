@@ -189,3 +189,13 @@ def test_pinned_ineligible_model_blocks_with_its_reasons():
     assert "binary missing" in d.reason, "the pinned model's own hard-filter reasons are shown"
     missing = route(req(pinned="codex-cli:o9"), [OPUS], policy())
     assert missing.chosen is None and "not in the model registry" in missing.reason
+
+
+def test_a_model_near_its_plan_limit_is_skipped_until_the_window_resets():
+    load = RuntimeLoad(near_limit={"claude-code:opus": ("2026-10-21T00:00:00+00:00", "has 2% of its weekly plan left")})
+    d = route(req(Complexity.COMPLEX), [OPUS, CODEX], policy(), load)
+    assert d.chosen == "codex-cli:default"
+    assert "claude-code:opus" in d.cooling
+    alone = route(req(Complexity.COMPLEX), [OPUS], policy(), load)
+    assert alone.chosen is None and "2% of its weekly plan left" in alone.reason
+    assert alone.available_at == "2026-10-21T00:00:00+00:00", "the task can wait for the reset"

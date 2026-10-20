@@ -109,3 +109,28 @@ def test_unrecognised_output_is_reported_not_guessed(parser, text):
 def test_codex_without_windows_is_refused():
     with pytest.raises(ValueError):
         parse_codex_rate_limits({"rateLimits": {"planType": "plus"}})
+
+
+def test_windows_apply_only_to_the_model_families_they_name():
+    gemini, other = parse_agy_usage(
+        json.dumps(
+            {
+                "command": {
+                    "data": {
+                        "groups": [
+                            {"name": "Gemini Models", "buckets": [{"window": "weekly", "remaining_fraction": 0.5}]},
+                            {
+                                "name": "Claude and GPT models",
+                                "buckets": [{"window": "weekly", "remaining_fraction": 0.02}],
+                            },
+                        ]
+                    }
+                }
+            }
+        )
+    )
+    assert gemini.applies_to("gemini-3.8-flash-high") and not gemini.applies_to("claude-opus-4-6-thinking")
+    assert other.applies_to("claude-opus-4-6-thinking") and other.applies_to("gpt-oss-120b-medium")
+    assert not other.applies_to("gemini-3.8-flash-low")
+    (week,) = [w for w in parse_claude_usage(CLAUDE) if w.window == "weekly"]
+    assert week.scope == () and week.applies_to("haiku"), "'all models' windows apply to every model"

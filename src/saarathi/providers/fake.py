@@ -30,6 +30,7 @@ from saarathi.providers.base import (
     ProbeResult,
     ProviderAdapter,
 )
+from saarathi.providers.limits import ProviderLimits, limits_from_options
 
 FAKE_ENV_FLAG = "SAARATHI_ALLOW_FAKE_PROVIDERS"
 
@@ -67,6 +68,9 @@ class FakeAdapter(ProviderAdapter):
             test_only=True,
             notices=["Test-only fake adapter. Results are scripted, not produced by a model."],
         )
+
+    def read_limits(self) -> ProviderLimits | None:
+        return limits_from_options(self.name, self.config.options.get("limits"))
 
     def _record(self, inv: Invocation) -> int:
         key = inv.task_id or inv.purpose

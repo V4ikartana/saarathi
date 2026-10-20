@@ -99,6 +99,10 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   spring animations (page and tab transitions, the inspector sliding in, sliding selection indicators, animated
   meters). Settings → Appearance adds theme, six accent colours, interface size, motion (system, full, reduced) and the
   execution panel toggle.
+- Routing avoids providers that are nearly out of plan usage: `routing.min_remaining_percent` (default 5, 0 turns it
+  off). Drivers read each CLI's limits on a background thread (refreshed every ten minutes; the first dispatch waits at
+  most 15 seconds) and treat a model below the threshold like a cooldown until its window resets. Antigravity's
+  per-group windows apply only to their own model families. A `provider.near_limit` event explains every skip.
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now

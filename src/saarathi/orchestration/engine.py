@@ -12,6 +12,8 @@ import contextlib
 import hashlib
 import json
 import os
+import threading
+import time
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -53,6 +55,7 @@ from saarathi.orchestration.preferences import (
 )
 from saarathi.orchestration.project import Project
 from saarathi.providers.base import ErrorKind, Invocation, InvocationMode
+from saarathi.providers.limits import ProviderLimits
 from saarathi.reporting.report import write_report
 from saarathi.routing.router import RoutingRequest, RuntimeLoad, resolve_lead, route
 from saarathi.runtime.process import process_alive, terminate_tree
@@ -67,6 +70,8 @@ LEASE_TTL = timedelta(minutes=2)
 HEARTBEAT_SECONDS = 20.0
 GRANT_PREFIX = "grant:"  # control key prefix for integration approvals granted in a run
 SELECT_PREFIX = "select:"  # control key prefix for per-task account selections
+LIMITS_REFRESH_SECONDS = 600.0
+LIMITS_FIRST_WAIT_SECONDS = 15.0  # the first dispatch waits this long at most for the first read
 LIMIT_KINDS = frozenset({ErrorKind.RATE_LIMIT.value, ErrorKind.QUOTA_EXHAUSTED.value})
 WORKER_CAPABILITIES = ("code_generation", "workspace_write", "structured_output")
 
@@ -116,6 +121,12 @@ class Engine:
         self.operations: OperationsAgent = (
             DeterministicOperations()
         )  # earliest end of a provider cooldown a READY task waits for
+        # Remaining plan usage per adapter, read from each CLI on a background thread (routing.min_remaining_percent).
+        self._limits: dict[str, ProviderLimits] = {}
+        self._limits_read_at = 0.0
+        self._limits_thread: threading.Thread | None = None
+        self._limits_lock = threading.Lock()
+        self._limits_reported: set[str] = set()
 
     # ================================================================== entry points
 
@@ -138,6 +149,7 @@ class Engine:
         return run.id
 
     async def drive(self, run_id: str) -> RunState:
+        self._refresh_limits()  # in the background: ready by the time workers are dispatched
         with self.p.engine_lock():
             while True:
                 run = self.p.store.get_run(run_id)
@@ -518,9 +530,77 @@ class Engine:
             return None
         return self.p.integrations.snapshot(self.p.workspace)
 
+    # ------------------------------------------------------------------ plan limits
+
+    def _refresh_limits(self) -> None:
+        """Start a background read of every enabled provider's remaining plan usage if the last one is stale."""
+        if self.p.policy.routing.min_remaining_percent <= 0:
+            return
+        with self._limits_lock:
+            stale = time.monotonic() - self._limits_read_at > LIMITS_REFRESH_SECONDS
+            if not stale or (self._limits_thread is not None and self._limits_thread.is_alive()):
+                return
+            adapters = [a for n, a in self.p.registry.adapters.items() if self.p.policy.providers[n].enabled]
+
+            def read() -> None:
+                found = {}
+                for adapter in adapters:
+                    with contextlib.suppress(Exception):  # limits are advisory: a failed read never stops a run
+                        limits = adapter.read_limits()
+                        if limits is not None and not limits.error:
+                            found[adapter.name] = limits
+                with self._limits_lock:
+                    self._limits = found
+                    self._limits_read_at = time.monotonic()
+
+            self._limits_thread = threading.Thread(target=read, name="saarathi-limits", daemon=True)
+            self._limits_thread.start()
+
+    def _near_limit(self, run_id: str, models: list[ModelDescriptor]) -> dict[str, tuple[str | None, str]]:
+        """Models whose provider reports less than ``routing.min_remaining_percent`` of a plan window left."""
+        threshold = self.p.policy.routing.min_remaining_percent
+        if threshold <= 0:
+            return {}
+        thread = self._limits_thread
+        if thread is not None and thread.is_alive() and not self._limits:
+            thread.join(timeout=LIMITS_FIRST_WAIT_SECONDS)  # the first read only; later reads never block dispatch
+        self._refresh_limits()
+        with self._limits_lock:
+            snapshot = dict(self._limits)
+        low: dict[str, tuple[str | None, str]] = {}
+        for model in models:
+            limits = snapshot.get(model.adapter)
+            if limits is None:
+                continue
+            for w in limits.windows:
+                if w.applies_to(model.id) and w.remaining_percent < threshold:
+                    resets = w.resets_at or w.resets_text
+                    why = f"has {w.remaining_percent:.0f}% of its {w.label} plan window left" + (
+                        f" (resets {resets})" if resets else ""
+                    )
+                    low[model.candidate_id] = (w.resets_at, why)
+                    key = f"{model.candidate_id}:{w.label}"
+                    if key not in self._limits_reported:
+                        self._limits_reported.add(key)
+                        self.p.store.append_event(
+                            "provider.near_limit",
+                            {
+                                "candidate": model.candidate_id,
+                                "window": w.label,
+                                "remaining_percent": round(w.remaining_percent, 1),
+                                "resets": resets,
+                                "threshold": threshold,
+                            },
+                            actor="router",
+                            run_id=run_id,
+                        )
+                    break
+        return low
+
     def _dispatch(self, run_id: str) -> None:
         models = self.p.registry.models()
         self._cooldown_until = None
+        near_limit = self._near_limit(run_id, models)
         for task in self.p.store.tasks(run_id):
             if len(self._running) >= self.p.policy.routing.max_parallel_workers:
                 return
@@ -529,7 +609,9 @@ class Engine:
             if self._prepare_task_base(run_id, task) is None:
                 continue
             req = self._routing_request(run_id, task)
-            decision = route(req, models, self.p.policy, self._load(), self._snapshot_for(req))
+            load = self._load()
+            load.near_limit = near_limit
+            decision = route(req, models, self.p.policy, load, self._snapshot_for(req))
             if decision.chosen is None and decision.busy:
                 continue  # wait for capacity; not recorded to keep the log readable
             if decision.chosen is None and decision.cooling and self._can_wait_for_cooldown(decision):
