@@ -134,6 +134,8 @@ class ProviderAdapter(ABC):
     type_name: str
     provider: str
     transport: Transport = Transport.CLI
+    # How a worker's actions are contained, for the permission review screen (ADR-0004).
+    isolation: str = "No isolation is described for this adapter."
     # Capabilities this adapter's integration has been built and tested for.
     base_capabilities = ModelCapabilities(
         code_generation=True, repository_tools=True, structured_output=True, workspace_write=True
@@ -151,6 +153,12 @@ class ProviderAdapter(ABC):
 
     @abstractmethod
     def _probe_impl(self) -> ProbeResult: ...
+
+    def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
+        """The exact command line this adapter runs for a worker task, with placeholders for the prompt, schema,
+        worktree and model. Shown on the permission review screen. None when the CLI is not installed or the
+        adapter runs no external command."""
+        return None
 
     @abstractmethod
     async def invoke(self, inv: Invocation) -> InvocationResult: ...
@@ -180,3 +188,19 @@ class ProviderAdapter(ABC):
                 )
             )
         return out
+
+
+def preview_invocation(*, allow_network: bool, allowed_commands: Sequence[str]) -> Invocation:
+    """A worker invocation with placeholders, for showing what an adapter would run."""
+    return Invocation(
+        purpose="worker",
+        mode=InvocationMode.WORKSPACE_WRITE,
+        prompt="<task prompt>",
+        schema={"<worker report schema>": True},
+        cwd=Path("<task worktree>"),
+        model="<model>",
+        timeout_s=1800,
+        log_dir=Path("<logs>"),
+        allowed_commands=tuple(allowed_commands),
+        allow_network=allow_network,
+    )

@@ -6,7 +6,7 @@ with the exact problems, then the run pauses rather than accepting it.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -51,12 +51,20 @@ def plan_policy_problems(plan: Plan, policy: Policy) -> list[str]:
 
 
 class LeadAgent:
-    def __init__(self, adapter: ProviderAdapter, model: ModelDescriptor, policy: Policy, log_root: Path) -> None:
+    def __init__(
+        self,
+        adapter: ProviderAdapter,
+        model: ModelDescriptor,
+        policy: Policy,
+        log_root: Path,
+        on_usage: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
         self.adapter = adapter
         self.model = model
         self.policy = policy
         self.log_root = log_root
         self.usage: list[dict[str, Any]] = []
+        self.on_usage = on_usage  # persists each lead call's provider-reported usage
 
     @property
     def identity(self) -> dict[str, str]:
@@ -79,7 +87,7 @@ class LeadAgent:
             log_dir=self.log_root / purpose.replace(".", "-"),
         )
         result = await self.adapter.invoke(inv)
-        self._record_usage(purpose, result.usage)
+        self._record_usage(purpose, result.usage, ok=result.ok and result.structured is not None)
         if not result.ok or result.structured is None:
             raise LeadError(f"{purpose} failed ({result.error_kind}): {result.error}", retryable=True)
         try:
@@ -87,8 +95,11 @@ class LeadAgent:
         except ValidationError as exc:
             raise LeadError(f"{purpose} returned output that fails validation: {exc}", retryable=True) from exc
 
-    def _record_usage(self, purpose: str, usage: Usage) -> None:
-        self.usage.append({"purpose": purpose, **usage.model_dump()})
+    def _record_usage(self, purpose: str, usage: Usage, *, ok: bool = True) -> None:
+        entry = {"purpose": purpose, "ok": ok, **self.identity, **usage.model_dump()}
+        self.usage.append(entry)
+        if self.on_usage is not None:
+            self.on_usage(entry)
 
     async def intake(self, brief: str, summary: str, cwd: Path) -> IntakeResult:
         return await self._complete(

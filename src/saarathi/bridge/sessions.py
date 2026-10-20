@@ -80,6 +80,16 @@ class SessionStore:
             self.store.append_event("session.renamed", {"session_id": session_id}, actor=actor)
         return self.get(session_id)
 
+    def set_preferences(self, session_id: str, preferences: dict[str, Any], *, actor: str = "user") -> Session:
+        self.get(session_id)
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE sessions SET preferences_json=?, updated_at=? WHERE id=?",
+                (json.dumps(preferences, sort_keys=True), utcnow(), session_id),
+            )
+            self.store.append_event("session.preferences", {"session_id": session_id, **preferences}, actor=actor)
+        return self.get(session_id)
+
     def set_status(self, session_id: str, status: str, *, actor: str = "user") -> Session:
         if status not in ("active", "archived"):
             raise ValueError(f"invalid session status {status}")

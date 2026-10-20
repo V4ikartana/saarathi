@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Sequence
 from typing import Any
 
 from saarathi.core.contracts import Usage
@@ -34,6 +35,7 @@ from saarathi.providers.base import (
     ProbeResult,
     ProviderAdapter,
     classify_error,
+    preview_invocation,
     run_quick,
 )
 from saarathi.runtime.process import run_process, write_log
@@ -72,6 +74,9 @@ def parse_models(text: str) -> list[str]:
 class AntigravityCliAdapter(ProviderAdapter):
     type_name = "antigravity-cli"
     provider = "google"
+    isolation = (
+        "Edits files only (accept-edits). No shell commands: Saarathi runs every check itself after the attempt."
+    )
 
     def __init__(self, name: str, config: Any) -> None:
         super().__init__(name, config)
@@ -142,6 +147,12 @@ class AntigravityCliAdapter(ProviderAdapter):
                 m = m.model_copy(update={"available": False, "unavailable_reason": "not offered by `agy models`"})
             out.append(m)
         return out
+
+    def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
+        if self._binary() is None:
+            return None
+        inv = preview_invocation(allow_network=allow_network, allowed_commands=allowed_commands)
+        return self.build_argv(inv)
 
     def build_argv(self, inv: Invocation) -> list[str]:
         binary = self._binary()

@@ -25,6 +25,7 @@ from saarathi.core.contracts import (
     IntakeResult,
     ModelDescriptor,
     Plan,
+    ReviewVerdict,
     RoutingDecision,
     TaskPacket,
     TaskPermissions,
@@ -34,6 +35,7 @@ from saarathi.core.contracts import (
     topological_order,
 )
 from saarathi.core.errors import SaarathiError
+from saarathi.core.policy import ApprovalPreset
 from saarathi.core.states import RUN_TERMINAL, TASK_IN_FLIGHT, RunState, TaskState
 from saarathi.git.workspace import scope_violations
 from saarathi.integrations.model import DataSource, IntegrationSnapshot
@@ -42,6 +44,13 @@ from saarathi.orchestration import prompts
 from saarathi.orchestration.handoff import Handoff, dependency_results, plan_handoff
 from saarathi.orchestration.lead import LeadAgent, LeadError
 from saarathi.orchestration.operations import DeterministicOperations, EscalationContext, OperationsAgent
+from saarathi.orchestration.preferences import (
+    ModelMode,
+    RunPreferences,
+    effective_preset,
+    plan_auto_approval,
+    review_auto_approval,
+)
 from saarathi.orchestration.project import Project
 from saarathi.providers.base import ErrorKind, Invocation, InvocationMode
 from saarathi.reporting.report import write_report
@@ -110,18 +119,21 @@ class Engine:
 
     # ================================================================== entry points
 
-    async def start(self, brief_path: Path) -> str:
+    async def start(self, brief_path: Path, preferences: RunPreferences | None = None) -> str:
         brief = brief_path.read_text(encoding="utf-8")
         if self.p.store.active_run() is not None:
             raise SaarathiError(
                 "a run is already active in this project",
                 hint="use `saarathi status`, `saarathi resume` or `saarathi cancel`",
             )
+        prefs = preferences or RunPreferences()
+        prefs.validate(self.p.policy, self.p.registry.models())
         run = self.p.store.create_run(
             project_id=self.p.project_id,
             brief_path=str(brief_path.resolve()),
             brief_sha256=hashlib.sha256(brief.encode()).hexdigest(),
         )
+        prefs.record(self.p.store, run.id, actor="user")
         self.p.memory.write_new_or_same(f"tasks/{run.id}/brief.md", brief)
         return run.id
 
@@ -147,7 +159,28 @@ class Engine:
         return False
 
     async def _step_awaiting_review(self, run_id: str) -> bool:
-        return False
+        run = self.p.store.get_run(run_id)
+        if run.review is None:
+            return False
+        preset = effective_preset(RunPreferences.load(self.p.store, run_id), self.p.policy)
+        auto, why = review_auto_approval(
+            preset, ReviewVerdict.model_validate(run.review), bool((run.integration or {}).get("passed"))
+        )
+        if not self._auto_approval(run_id, "review", preset, auto, why):
+            return False
+        self.approve_review(run_id, actor="policy", reason=f"approved automatically ({preset}): {why}")
+        return True
+
+    def _auto_approval(self, run_id: str, kind: str, preset: ApprovalPreset, auto: bool, why: str) -> bool:
+        """Record whether the run's preset approves ``kind`` without a person. Ask-preset runs record nothing."""
+        if preset is ApprovalPreset.ASK:
+            return False
+        event = "approval.automatic" if auto else "approval.required"
+        payload = {"kind": kind, "preset": preset.value, "reason": why}
+        self.p.store.append_event(event, payload, actor="policy", run_id=run_id)
+        if not auto:
+            self.io.info(f"{kind.capitalize()} needs a person: {why}")
+        return auto
 
     def _lead(self, run_id: str) -> LeadAgent | None:
         models = self.p.registry.models()
@@ -156,7 +189,11 @@ class Engine:
             self._pause(run_id, "engineering lead unavailable: " + "; ".join(problems))
             return None
         adapter = self.p.registry.get(lead_model.adapter)
-        return LeadAgent(adapter, lead_model, self.p.policy, self.p.logs / run_id)
+
+        def record(entry: dict[str, Any]) -> None:
+            self.p.store.append_event("lead.usage", entry, actor="lead", run_id=run_id)
+
+        return LeadAgent(adapter, lead_model, self.p.policy, self.p.logs / run_id, on_usage=record)
 
     def _lead_workspace(self, run_id: str, commit: str) -> Path:
         path = self.p.worktree_root(run_id) / "lead"
@@ -250,6 +287,11 @@ class Engine:
 
     async def _step_awaiting_plan_approval(self, run_id: str) -> bool:
         plan = Plan.model_validate(self.p.store.get_run(run_id).plan)
+        preset = effective_preset(RunPreferences.load(self.p.store, run_id), self.p.policy)
+        auto, why = plan_auto_approval(preset, plan)
+        if self._auto_approval(run_id, "plan", preset, auto, why):
+            self.approve_plan(run_id, actor="policy", reason=f"plan approved automatically ({preset}): {why}")
+            return True
         self.io.info(render_plan(plan))
         if not self.io.confirm("Approve this plan and start execution?"):
             self.io.info("Plan awaiting approval. Run `saarathi approve` when ready.")
@@ -257,7 +299,7 @@ class Engine:
         self.approve_plan(run_id, actor="user")
         return True
 
-    def approve_plan(self, run_id: str, *, actor: str = "user") -> None:
+    def approve_plan(self, run_id: str, *, actor: str = "user", reason: str = "plan approved") -> None:
         run = self.p.store.get_run(run_id)
         if run.state is not RunState.AWAITING_PLAN_APPROVAL:
             raise SaarathiError(f"run is {run.state}, not awaiting plan approval")
@@ -298,7 +340,7 @@ class Engine:
                 run_id,
                 RunState.EXECUTING,
                 actor=actor,
-                reason="plan approved",
+                reason=reason,
                 payload={"base_commit": run.base_commit, "adrs": [a[0] for a in accepted]},
             )
 
@@ -422,6 +464,7 @@ class Engine:
         grants = frozenset(k[len(GRANT_PREFIX) :] for k in self.p.store.controls(run_id, GRANT_PREFIX))
         prefix = f"{SELECT_PREFIX}{task.id}:"
         selections = tuple(sorted((int(k[len(prefix) :]), v) for k, v in self.p.store.controls(run_id, prefix).items()))
+        prefs = RunPreferences.load(self.p.store, run_id)
         return RoutingRequest(
             task_id=task.id,
             required_capabilities=tuple(task.packet.required_capabilities),
@@ -431,6 +474,8 @@ class Engine:
             data_sources=self._data_sources(run_id, task),
             approvals=grants,
             selections=selections,
+            preferred=prefs.model if prefs.model_mode is ModelMode.PREFER else None,
+            pinned=prefs.model if prefs.model_mode is ModelMode.PIN else None,
         )
 
     def _data_sources(self, run_id: str, task: TaskRecord) -> tuple[DataSource, ...]:
@@ -1310,11 +1355,11 @@ class Engine:
         store.transition_run(run_id, RunState.AWAITING_REVIEW, actor=ACTOR, payload={"lead_decision": verdict.decision})
         return True
 
-    def approve_review(self, run_id: str, *, actor: str = "user") -> Path:
+    def approve_review(self, run_id: str, *, actor: str = "user", reason: str = "human approved") -> Path:
         run = self.p.store.get_run(run_id)
         if run.state is not RunState.AWAITING_REVIEW:
             raise SaarathiError(f"run is {run.state}, not awaiting review")
-        self.p.store.transition_run(run_id, RunState.READY_TO_SHIP, actor=actor, reason="human approved")
+        self.p.store.transition_run(run_id, RunState.READY_TO_SHIP, actor=actor, reason=reason)
         self.p.store.transition_run(run_id, RunState.COMPLETED, actor=ACTOR, reason="branch and report delivered")
         return write_report(self.p, run_id)  # regenerate any time with `saarathi report`
 

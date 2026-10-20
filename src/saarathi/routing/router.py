@@ -41,6 +41,8 @@ class RoutingRequest:
     data_sources: tuple[DataSource, ...] = ()  # integration data this task would receive
     approvals: frozenset[str] = frozenset()  # approval keys granted for this run
     selections: tuple[tuple[int, str], ...] = ()  # (requirement index, account id) chosen by the user
+    preferred: str | None = None  # candidate id a person prefers: a score bonus, never an eligibility change
+    pinned: str | None = None  # candidate id a person pinned: the only candidate considered, after hard filters
     now: datetime | None = None
 
 
@@ -96,6 +98,10 @@ def score(model: ModelDescriptor, req: RoutingRequest, policy: Policy, load: Run
             else 0.0
         ),
     }
+    if model.candidate_id == req.preferred and model.candidate_id not in req.previously_failed:
+        # Larger than every other term combined, so an eligible, free preferred model always wins; waived once it
+        # has failed this task, so a retry can go elsewhere.
+        terms["preference"] = w.tier_fit + w.cost + w.history + w.load + w.spread
     if model.candidate_id in req.previously_failed:
         terms["previously_failed"] = -FAILED_BEFORE_PENALTY
     terms["total"] = round(sum(terms.values()), 4)
@@ -146,6 +152,8 @@ def route(
                 reasons = [f"awaiting approval '{p.key}': {p.detail}" for p in check.pending]
             if not reasons:
                 connections[model.candidate_id] = check.connections
+        if not reasons and req.pinned and model.candidate_id != req.pinned:
+            reasons = [f"not the pinned model ({req.pinned})"]
         if reasons:
             rejected.append(RejectedCandidate(candidate=model.candidate_id, reasons=reasons))
             continue
@@ -193,6 +201,10 @@ def route(
         if pending:
             keys = "; ".join(f"{p.key} ({p.detail})" for p in pending)
             return blocked(f"awaiting approval: {keys}", "approval")
+        if req.pinned:
+            own = next((r.reasons for r in rejected if r.candidate == req.pinned), None)
+            why = "; ".join(own) if own else "it is not in the model registry"
+            return blocked(f"the pinned model {req.pinned} is not eligible: {why}. Unpin it or fix the cause")
         return blocked("no candidate satisfies the hard filters; task cannot run until policy or providers change")
 
     scored.sort(key=lambda item: (-item[0], item[1]))

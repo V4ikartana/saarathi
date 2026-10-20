@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Sequence
 from typing import Any
 
 from saarathi.core.contracts import Usage
@@ -22,6 +23,7 @@ from saarathi.providers.base import (
     ProbeResult,
     ProviderAdapter,
     classify_error,
+    preview_invocation,
     run_quick,
 )
 from saarathi.runtime.process import run_process, write_log
@@ -42,6 +44,10 @@ ENV_NAMES = ("CODEX_HOME",)
 class CodexCliAdapter(ProviderAdapter):
     type_name = "codex-cli"
     provider = "openai"
+    isolation = (
+        "Codex's OS sandbox in workspace-write mode: writes stay inside the task worktree, network follows the"
+        " policy, and Codex never asks for approval mid-task."
+    )
 
     def _binary(self) -> str | None:
         return self.config.binary or shutil.which("codex")
@@ -99,6 +105,12 @@ class CodexCliAdapter(ProviderAdapter):
         if result.version and "alpha" in result.version:
             result.notices.append(f"Codex {result.version} is a pre-release build; flags may change.")
         return result
+
+    def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
+        if self._binary() is None:
+            return None
+        inv = preview_invocation(allow_network=allow_network, allowed_commands=allowed_commands)
+        return self.build_argv(inv, "<schema.json>", "<last-message.txt>")
 
     def build_argv(self, inv: Invocation, schema_path: str, last_path: str) -> list[str]:
         binary = self._binary()

@@ -39,18 +39,20 @@ from saarathi.cli.output import (
 )
 from saarathi.cli.status import build_status
 from saarathi.core.contracts import RoutingDecision
-from saarathi.core.errors import ExitCode, SaarathiError
+from saarathi.core.errors import ConfigError, ExitCode, SaarathiError
 from saarathi.core.policy import load_policy
 from saarathi.core.states import RunState
 from saarathi.integrations.discovery import discovery_for
 from saarathi.integrations.model import ConnectionStatus, Evidence, IntegrationSnapshot
 from saarathi.memory.lessons import approve_lesson
 from saarathi.orchestration.engine import GRANT_PREFIX, SELECT_PREFIX, Engine, render_plan
+from saarathi.orchestration.preferences import RunPreferences
 from saarathi.orchestration.project import META, Project
 from saarathi.providers.base import Invocation, InvocationMode
 from saarathi.providers.claude_cli import LIVE_UNVERIFIED_PREFIX
 from saarathi.providers.registry import ProviderRegistry
 from saarathi.reporting.report import build_report, render_markdown
+from saarathi.reporting.usage import usage_summary
 from saarathi.routing.router import resolve_lead
 
 app = typer.Typer(
@@ -531,13 +533,26 @@ def run(
     brief: Annotated[Path, typer.Argument(exists=True, dir_okay=False, readable=True, help="Markdown brief.")],
     non_interactive: NonInteractive = False,
     accept_defaults: AcceptDefaults = False,
+    approvals: Annotated[
+        str,
+        typer.Option(help="ask | auto_safe | bypass, capped by approvals.max_preset in the policy (ADR-0014)."),
+    ] = "ask",
+    prefer_model: Annotated[
+        str | None, typer.Option(help="Prefer this worker model (adapter:model) among eligible ones.")
+    ] = None,
+    pin_model: Annotated[
+        str | None, typer.Option(help="Use only this worker model (adapter:model); tasks wait if it is ineligible.")
+    ] = None,
     json_out: JsonFlag = False,
 ) -> None:
     """Start a run from a brief: intake, clarify, plan, then execute after approval."""
     project = _project()
     engine = Engine(project, ConsoleIO(not non_interactive and not json_out), accept_defaults=accept_defaults)
     try:
-        run_id = asyncio.run(engine.start(brief))
+        if prefer_model and pin_model:
+            raise ConfigError("use either --prefer-model or --pin-model, not both")
+        prefs = RunPreferences.parse(approvals, pin_model or prefer_model, "pin" if pin_model else "prefer")
+        run_id = asyncio.run(engine.start(brief, prefs))
     except SaarathiError as exc:
         _fail(exc)
         raise
@@ -695,6 +710,29 @@ def report(run_id: Annotated[str | None, typer.Option("--run")] = None, json_out
     project = _project()
     data = build_report(project, _run_id(project, run_id))
     typer.echo(json.dumps(data, indent=2, default=str) if json_out else render_markdown(data))
+
+
+@app.command()
+def usage(json_out: JsonFlag = False) -> None:
+    """Show token usage per model and per run, as the providers reported it."""
+    data = usage_summary(_project())
+    if json_out:
+        typer.echo(json.dumps(data, indent=2, default=str))
+        return
+
+    def tokens(row: dict[str, Any]) -> str:
+        cost = row["cost_usd"]
+        money = "" if cost is None else f"  {'~' if row['cost_is_estimate'] else ''}${cost:.4f}"
+        unreported = f"  ({row['unreported']} without token counts)" if row["unreported"] else ""
+        return f"in {row['input_tokens']:,}  out {row['output_tokens']:,}{money}{unreported}"
+
+    total = data["totals"]
+    typer.echo(f"{total['calls']} calls  {tokens(total)}")
+    for m in data["by_model"]:
+        typer.echo(f"  {m['role']:<6} {m['candidate']:<28} {m['calls']:>4} calls  {tokens(m)}")
+    for limit in data["limits"]:
+        typer.echo(f"  {limit['adapter']} {limit['state'].replace('_', ' ')} until {limit['until']}: {limit['reason']}")
+    typer.echo(data["quota_note"], err=True)
 
 
 def _print_integration(d: RoutingDecision) -> None:

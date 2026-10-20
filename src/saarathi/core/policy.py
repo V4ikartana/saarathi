@@ -70,6 +70,27 @@ class BillingConfig(Strict):
     max_month_usd: float = Field(default=0, ge=0)
 
 
+class ApprovalPreset(StrEnum):
+    """How much of the plan and final-review approval a person delegates for a run (ADR-0014).
+
+    Escalation ADR changes, integration identity and side-effect approvals, cross-provider transfers and lesson
+    promotion are never automatic under any preset.
+    """
+
+    ASK = "ask"  # plan and final review are approved by a person
+    AUTO_SAFE = "auto_safe"  # a low-risk plan without integrations starts on its own; review stays manual
+    BYPASS = "bypass"  # any plan that passed policy checks starts; an approving lead review completes the run
+
+    @property
+    def rank(self) -> int:
+        return list(ApprovalPreset).index(self)
+
+
+class ApprovalsConfig(Strict):
+    # The most a session may delegate in this project. Only the policy owner can raise it.
+    max_preset: ApprovalPreset = ApprovalPreset.AUTO_SAFE
+
+
 class PermissionsConfig(Strict):
     allow_network: bool = False
     allow_dependency_install: bool = False
@@ -159,6 +180,7 @@ class Policy(Strict):
     routing: RoutingConfig
     billing: BillingConfig = Field(default_factory=BillingConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
+    approvals: ApprovalsConfig = Field(default_factory=ApprovalsConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     integrations: IntegrationPolicy = Field(default_factory=IntegrationPolicy)
     providers: dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -240,6 +262,11 @@ permissions:
   allow_dependency_install: false
   allow_deployment: false
   require_approval_for_merge: true
+
+approvals:
+  # The most a session may delegate: ask | auto_safe | bypass (ADR-0014). Escalations, integration identity and
+  # side-effect approvals, cross-provider transfers and lesson promotion always need a person.
+  max_preset: auto_safe
 
 execution:
   task_timeout_seconds: 1800

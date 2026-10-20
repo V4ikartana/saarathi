@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections.abc import Sequence
 from typing import Any
 
 from saarathi.core.contracts import Usage
@@ -26,6 +27,7 @@ from saarathi.providers.base import (
     ProbeResult,
     ProviderAdapter,
     classify_error,
+    preview_invocation,
     run_quick,
 )
 from saarathi.runtime.process import run_process, write_log
@@ -49,6 +51,10 @@ def parse_version(text: str) -> tuple[int, int, int] | None:
 class ClaudeCodeAdapter(ProviderAdapter):
     type_name = "claude-code"
     provider = "anthropic"
+    isolation = (
+        "Not OS-sandboxed. Tools are limited to Read, Glob, Grep, Edit, Write and Bash for the task's own"
+        " verification commands; MCP servers are disabled, and web tools too unless the policy allows network."
+    )
 
     def _binary(self) -> str | None:
         return self.config.binary or shutil.which("claude")
@@ -103,6 +109,12 @@ class ClaudeCodeAdapter(ProviderAdapter):
             )
         result.notices.append(f"{LIVE_UNVERIFIED_PREFIX} until `saarathi doctor --live` passes on this machine.")
         return result
+
+    def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
+        if self._binary() is None:
+            return None
+        inv = preview_invocation(allow_network=allow_network, allowed_commands=allowed_commands)
+        return self.build_argv(inv)
 
     def build_argv(self, inv: Invocation) -> list[str]:
         binary = self._binary()

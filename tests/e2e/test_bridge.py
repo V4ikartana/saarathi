@@ -269,3 +269,48 @@ def test_session_rename_archive_search(client, repo, tmp_path):
         client.call("sessions.rename", project=project, session=s["id"], title=" ")["error"]["data"]["kind"]
         == "invalid_params"
     )
+
+
+def test_session_preferences_policy_view_and_usage(client, repo, tmp_path):
+    project = setup_project(repo, tmp_path, {"T-001": [GOOD_T1], "T-002": [GOOD_T2]})
+    session = client.ok("sessions.create", project=project)
+
+    refused = client.call("sessions.set_preferences", project=project, session=session["id"], approvals="bypass")
+    assert refused["error"]["data"]["kind"] == "policy" and "max_preset" in refused["error"]["message"]
+    unknown = client.call("sessions.set_preferences", project=project, session=session["id"], model="fake-codex:o9")
+    assert unknown["error"]["data"]["kind"] == "invalid_params"
+    stored = client.ok(
+        "sessions.set_preferences",
+        project=project,
+        session=session["id"],
+        approvals="auto_safe",
+        model="fake-codex:default",
+        model_mode="pin",
+    )
+    assert stored["preferences"] == {"approvals": "auto_safe", "model": "fake-codex:default", "model_mode": "pin"}
+
+    view = client.ok("policy.get", project=project)
+    assert view["approvals"]["max_preset"] == "auto_safe"
+    assert [p["allowed"] for p in view["approvals"]["presets"]] == [True, True, False]
+    assert any("architecture decisions" in n for n in view["approvals"]["never_automatic"])
+    workers = {w["adapter"]: w for w in view["workers"]}
+    assert workers["fake-codex"]["worker_command"] is None and "Test-only" in workers["fake-codex"]["isolation"]
+
+    run_id = client.ok("sessions.send", project=project, session=session["id"], text="go")["run_id"]
+    snap = wait_for(client, project, run_id, lambda s: s["pending_approval"] == "review")
+    assert {t["provider"] for t in snap["tasks"]} == {"openai"}, "the pinned model took every task"
+    conversation = client.ok("sessions.get", project=project, session=session["id"])["conversation"]
+    auto = [e for e in conversation if e["kind"] == "approval"]
+    assert [e["level"] for e in auto] == ["info", "warn"], "plan approved by the preset; review still needs a person"
+
+    usage = client.ok("usage.summary", project=project)
+    roles = {(m["role"], m["candidate"]) for m in usage["by_model"]}
+    assert ("worker", "fake-codex:default") in roles and ("lead", "fake-claude:opus") in roles
+    assert usage["totals"]["calls"] >= 4 and "not reported" in usage["quota_note"]
+    assert usage["runs"][0]["run_id"] == run_id
+
+    policy_file = repo / ".saarathi" / "policies.yaml"
+    policy_file.write_text(policy_file.read_text() + "approvals:\n  max_preset: bypass\n")
+    os.utime(policy_file, (time.time() + 5, time.time() + 5))  # a distinct mtime even on coarse clocks
+    raised = client.ok("sessions.set_preferences", project=project, session=session["id"], approvals="bypass")
+    assert raised["preferences"]["approvals"] == "bypass", "the bridge reloads a changed policy"

@@ -13,7 +13,7 @@ PHASES = {
     "INTAKE": "Engineering lead is reading the request",
     "CLARIFYING": "The lead has questions before planning",
     "PLANNING": "Planning",
-    "AWAITING_PLAN_APPROVAL": "Plan ready for your approval",
+    "AWAITING_PLAN_APPROVAL": "Plan ready for approval",
     "EXECUTING": "Executing tasks",
     "VERIFYING": "Integrating and verifying",
     "AWAITING_REVIEW": "Ready for your final review",
@@ -154,6 +154,18 @@ def render_event(event: EventRecord, run: RunRecord) -> dict[str, Any] | None:
         )
     if t.startswith("security."):
         return entry(event, "security", t.split(".", 1)[1].replace("_", " "), level="error", data=p)
+    if t == "approval.automatic":
+        what = "Plan" if p.get("kind") == "plan" else "Final review"
+        return entry(
+            event,
+            "approval",
+            f"{what} approved by the session's preset ({p.get('preset')})",
+            detail=p.get("reason"),
+            data=p,
+        )
+    if t == "approval.required":
+        what = "The plan" if p.get("kind") == "plan" else "The final review"
+        return entry(event, "approval", f"{what} needs you: {p.get('reason')}", level="warn", data=p)
     if t == "checkpoint.created":
         return entry(
             event, "checkpoint", f"Checkpoint: {p.get('kind')}", level="warn", detail="\n".join(p.get("items", []))

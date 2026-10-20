@@ -6,6 +6,7 @@ import asyncio
 import dataclasses
 import os
 import platform
+import shlex
 import sys
 import time
 from collections.abc import Callable
@@ -33,10 +34,13 @@ from saarathi.core.errors import (
     PolicyViolation,
     SaarathiError,
 )
+from saarathi.core.policy import ApprovalPreset
 from saarathi.core.states import RUN_TERMINAL, RunState
 from saarathi.git.workspace import GitError, GitRepo, data_dir
 from saarathi.orchestration.engine import Engine
+from saarathi.orchestration.preferences import PRESET_LABELS, RunPreferences
 from saarathi.orchestration.project import META, Project
+from saarathi.reporting.usage import usage_summary
 from saarathi.routing.router import resolve_lead
 from saarathi.security.redaction import Redactor
 from saarathi.storage.store import utcnow
@@ -83,6 +87,7 @@ def jsonable(value: Any) -> Any:
 class BridgeService:
     def __init__(self) -> None:
         self._projects: dict[str, Project] = {}
+        self._policy_stamp: dict[str, float] = {}  # policies.yaml mtime each cached project was loaded with
         self._idempotent: dict[str, Any] = {}
 
     # ------------------------------------------------------------------ plumbing
@@ -100,6 +105,7 @@ class BridgeService:
             "sessions.restore": self.sessions_restore,
             "sessions.get": self.sessions_get,
             "sessions.send": self.sessions_send,
+            "sessions.set_preferences": self.sessions_set_preferences,
             "runs.status": self.runs_status,
             "runs.events": self.runs_events,
             "runs.approve": self.runs_approve,
@@ -114,13 +120,22 @@ class BridgeService:
             "runs.timeline": self.runs_timeline,
             "models.list": self.models_list,
             "providers.status": self.providers_status,
+            "policy.get": self.policy_get,
+            "usage.summary": self.usage_summary,
         }
 
     def project(self, path: str) -> Project:
         root = str(Path(path).expanduser().resolve())
+        try:
+            stamp = (Path(root) / META / "policies.yaml").stat().st_mtime
+        except OSError:
+            stamp = 0.0
+        if root in self._projects and self._policy_stamp.get(root) != stamp:
+            self._projects.pop(root).store.close()  # the policy changed on disk: reload it
         if root not in self._projects:
             try:
                 self._projects[root] = Project.load(Path(root))
+                self._policy_stamp[root] = stamp
             except ConfigError as exc:
                 raise BridgeError(
                     "not_initialized" if "not a Saarathi project" in exc.message else "invalid_params",
@@ -230,6 +245,21 @@ class BridgeService:
         p, sessions = self._sessions(project)
         return jsonable(sessions.create(p.project_id, title))
 
+    def sessions_set_preferences(
+        self,
+        project: str,
+        session: str,
+        approvals: str = "ask",
+        model: str | None = None,
+        model_mode: str = "prefer",
+    ) -> Any:
+        """Store the session's approval preset and worker model for its next runs, after the policy accepts them."""
+        p, sessions = self._sessions(project)
+        prefs = RunPreferences.parse(approvals, model, model_mode)
+        prefs.validate(p.policy, p.registry.models())
+        stored = {"approvals": prefs.approvals.value, "model": prefs.model, "model_mode": prefs.model_mode.value}
+        return jsonable(sessions.set_preferences(session, stored))
+
     def sessions_rename(self, project: str, session: str, title: str) -> Any:
         return jsonable(self._sessions(project)[1].rename(session, title))
 
@@ -295,7 +325,9 @@ class BridgeService:
         brief_dir.mkdir(parents=True, exist_ok=True)
         brief = brief_dir / f"{item.id}.md"
         brief.write_text(text, encoding="utf-8")
-        run_id = asyncio.run(Engine(p).start(brief))
+        stored = sessions.get(session).preferences
+        prefs = RunPreferences.parse(stored.get("approvals"), stored.get("model"), stored.get("model_mode"))
+        run_id = asyncio.run(Engine(p).start(brief, prefs))
         sessions.link_run(item.id, run_id)
         pid = start_driver(p, run_id, accept_defaults=accept_defaults)
         return self._remember(idempotency_key, {"item": item.id, "run_id": run_id, "driver_pid": pid})
@@ -545,12 +577,89 @@ class BridgeService:
         p = self.project(project)
         return [jsonable(ModelOut.from_descriptor(m)) for m in p.registry.models()]
 
+    def policy_get(self, project: str) -> dict[str, Any]:
+        """The effective policy and how each worker is contained, for the permission review screen. Read-only:
+        the policy is changed by editing .saarathi/policies.yaml."""
+        p = self.project(project)
+        pol = p.policy
+        cap = pol.approvals.max_preset
+        workers = []
+        for name, adapter in p.registry.adapters.items():
+            cfg = pol.providers[name]
+            command = adapter.worker_command(
+                allow_network=pol.permissions.allow_network, allowed_commands=["<a verification command>"]
+            )
+            workers.append(
+                {
+                    "adapter": name,
+                    "provider": adapter.provider,
+                    "enabled": cfg.enabled,
+                    "models": [m.id for m in cfg.models],
+                    "isolation": adapter.isolation,
+                    "worker_command": shlex.join(command) if command else None,
+                }
+            )
+        return {
+            "path": str(p.meta / "policies.yaml"),
+            "mode": pol.mode,
+            "lead": f"{pol.orchestration.lead.adapter}:{pol.orchestration.lead.model}",
+            "lead_substitute": (
+                f"{pol.orchestration.lead_substitute.adapter}:{pol.orchestration.lead_substitute.model}"
+                if pol.orchestration.lead_substitute
+                else None
+            ),
+            "approvals": {
+                "max_preset": cap,
+                "presets": [
+                    {"id": pid, "label": label, "description": text, "allowed": pid.rank <= cap.rank}
+                    for pid, label, text in PRESETS
+                ],
+                "never_automatic": list(NEVER_AUTOMATIC),
+            },
+            "permissions": pol.permissions.model_dump(mode="json"),
+            "routing": pol.routing.model_dump(mode="json", exclude={"weights"}),
+            "integrations": pol.integrations.model_dump(mode="json"),
+            "execution": pol.execution.model_dump(
+                mode="json",
+                include={"task_timeout_seconds", "verification_timeout_seconds", "max_attempts", "env_passthrough"},
+            ),
+            "workers": workers,
+        }
+
+    def usage_summary(self, project: str, max_runs: int = 20) -> dict[str, Any]:
+        return usage_summary(self.project(project), max_runs=max_runs)
+
     def providers_status(self, project: str) -> dict[str, Any]:
         p = self.project(project)
         return {
             "health": [jsonable(h) for h in p.store.provider_health().values()],
             "models": self.models_list(project),
         }
+
+
+PRESETS = (
+    (ApprovalPreset.ASK, PRESET_LABELS["ask"], "You approve every plan and the final review."),
+    (
+        ApprovalPreset.AUTO_SAFE,
+        PRESET_LABELS["auto_safe"],
+        "A plan whose tasks are all low or medium risk and use no integrations starts on its own. You approve the"
+        " final review.",
+    ),
+    (
+        ApprovalPreset.BYPASS,
+        PRESET_LABELS["bypass"],
+        "Any plan that passed policy checks starts on its own, and a run completes when the lead approves and"
+        " integration checks pass.",
+    ),
+)
+NEVER_AUTOMATIC = (
+    "Changes to accepted architecture decisions (escalations)",
+    "Integration identity and account selections",
+    "External side effects such as sending or deleting",
+    "Data transfer between providers",
+    "Promoting lessons into project memory",
+    "Provider permission modes: no preset loosens them",
+)
 
 
 def _numstat(p: Project, base: str, commit: str) -> list[dict[str, Any]]:

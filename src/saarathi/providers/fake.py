@@ -40,6 +40,7 @@ def fake_providers_allowed() -> bool:
 
 class FakeAdapter(ProviderAdapter):
     type_name = "fake"
+    isolation = "Test-only adapter: replays a script and runs no external command."
 
     def __init__(self, name: str, config: Any) -> None:
         super().__init__(name, config)

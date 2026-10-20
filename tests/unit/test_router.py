@@ -156,3 +156,36 @@ def test_v01_policy_rejects_metered_modes(override):
     }
     with pytest.raises(ConfigError, match="ADR-0011"):
         parse_policy(raw)
+
+
+def test_preference_adds_an_explained_bonus_without_changing_eligibility():
+    plain = route(req(Complexity.COMPLEX), [OPUS, CODEX], policy())
+    assert plain.chosen == "claude-code:opus"
+    preferred = route(req(Complexity.COMPLEX, preferred="codex-cli:default"), [OPUS, CODEX], policy())
+    assert preferred.chosen == "codex-cli:default" and preferred.score_breakdown["preference"] > 0
+    denied = route(req(preferred="codex-cli:default"), [OPUS, CODEX], policy(denied_models=["openai/default"]))
+    assert denied.chosen == "claude-code:opus", "a preference never makes a filtered model eligible"
+
+
+def test_preference_does_not_outweigh_a_recent_failure():
+    d = route(
+        req(Complexity.COMPLEX, preferred="codex-cli:default", previously_failed=frozenset({"codex-cli:default"})),
+        [OPUS, CODEX],
+        policy(),
+    )
+    assert d.chosen == "claude-code:opus"
+
+
+def test_pin_restricts_to_one_eligible_candidate():
+    d = route(req(Complexity.COMPLEX, pinned="codex-cli:default"), [OPUS, CODEX], policy())
+    assert d.chosen == "codex-cli:default" and d.alternatives == []
+    assert any(r.candidate == "claude-code:opus" and "pinned" in r.reasons[0] for r in d.rejected)
+
+
+def test_pinned_ineligible_model_blocks_with_its_reasons():
+    down = model("codex-cli", "default", "openai", available=False)
+    d = route(req(pinned="codex-cli:default"), [OPUS, down], policy())
+    assert d.chosen is None and "pinned model codex-cli:default is not eligible" in d.reason
+    assert "binary missing" in d.reason, "the pinned model's own hard-filter reasons are shown"
+    missing = route(req(pinned="codex-cli:o9"), [OPUS], policy())
+    assert missing.chosen is None and "not in the model registry" in missing.reason
