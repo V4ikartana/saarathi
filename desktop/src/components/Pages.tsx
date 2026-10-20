@@ -106,6 +106,7 @@ export function UsagePage() {
                   <thead className="text-left text-faint">
                     <tr><th className="pb-1 font-normal">Model</th><th className="pb-1 font-normal">Role</th>
                       <th className="pb-1 text-right font-normal">Calls</th><th className="pb-1 text-right font-normal">Input</th>
+                      <th className="pb-1 text-right font-normal" title="Input the provider served from its prompt cache">Cached</th>
                       <th className="pb-1 text-right font-normal">Output</th><th className="pb-1 text-right font-normal">Cost</th>
                       <th className="pb-1 text-right font-normal">Time</th></tr>
                   </thead>
@@ -116,6 +117,7 @@ export function UsagePage() {
                         <td className="py-1.5 text-muted">{m.role}</td>
                         <td className="py-1.5 text-right tabular-nums">{m.calls}<span className="text-faint"> ({m.succeeded}✓ {m.failed}✗)</span></td>
                         <td className="py-1.5 text-right tabular-nums">{m.unreported === m.calls ? <span className="text-faint">not reported</span> : fmtTokens(m.input_tokens)}</td>
+                        <td className="py-1.5 text-right tabular-nums text-muted">{m.unreported === m.calls ? "" : fmtTokens(m.cached_input_tokens)}</td>
                         <td className="py-1.5 text-right tabular-nums">{m.unreported === m.calls ? <span className="text-faint">not reported</span> : fmtTokens(m.output_tokens)}</td>
                         <td className="py-1.5 text-right tabular-nums">{cost(m)}</td>
                         <td className="py-1.5 text-right tabular-nums text-muted">{m.role === "lead" ? "—" : fmtDuration(m.duration_s * 1000)}</td>

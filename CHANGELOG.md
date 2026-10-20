@@ -76,6 +76,7 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   per model and run, active provider limits, no invented quotas) and settings (theme, defaults for new sessions,
   provider check, engine details). New bridge methods: `sessions.set_preferences`, `policy.get`, `usage.summary`. The
   bridge reloads a project's policy when `policies.yaml` changes.
+- Live check of the desktop app with Claude Code and Codex CLI (`docs/phase0/evidence/live-desktop-claude-codex.md`).
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now

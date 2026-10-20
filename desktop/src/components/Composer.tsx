@@ -19,7 +19,7 @@ export function RunBar() {
         {run.pause_reason ?? (waitingOnYou ? "Waiting for you" : driving ? "The engine is working" : "Idle")}
       </span>
       <span className="ml-auto flex gap-1.5">
-        {driving && (
+        {driving && !waitingOnYou && (
           <Button tone="ghost" title="Finish in-flight attempts, then pause" disabled={busy[`stop:${run.run_id}`]}
             onClick={() => void stop(run.run_id)}><Pause className="size-3.5" />Stop</Button>
         )}

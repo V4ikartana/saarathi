@@ -135,8 +135,10 @@ restores the session). **M3 done**: task inspector, run timeline, Monaco diffs a
 app on macOS against a completed run and a run with a dependency chain, a retried task that failed verification and a
 blocked task (fake providers). **M4 done**: approval presets and model preferences in the engine (ADR-0014), session
 controls, permissions, usage and settings pages, checked in the real app on macOS (an `auto_safe` run with a pinned
-worker started without a manual plan approval and stopped at the final review). Windows and Linux are compile- and
-test-checked in CI only.
+worker started without a manual plan approval and stopped at the final review). **Live check**: a full run with Claude
+Code as lead and Claude Code plus Codex as workers, driven and approved in the app
+([evidence](../phase0/evidence/live-desktop-claude-codex.md)). Windows and Linux are compile- and test-checked in CI
+only.
 
 | # | Milestone | Validated by |
 |---|---|---|
