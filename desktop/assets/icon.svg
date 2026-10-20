@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Saarathi mark: several agents (dots) converging into one direction (arrow). Original artwork. -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#14171c"/>
+  <g fill="#e3a94a">
+    <circle cx="300" cy="380" r="46"/>
+    <circle cx="300" cy="512" r="46"/>
+    <circle cx="300" cy="644" r="46"/>
+  </g>
+  <g fill="none" stroke="#e3a94a" stroke-width="40" stroke-linecap="round" opacity="0.55">
+    <path d="M352 380 C 480 380, 520 512, 600 512"/>
+    <path d="M352 644 C 480 644, 520 512, 600 512"/>
+    <path d="M352 512 L 600 512"/>
+  </g>
+  <path d="M590 392 L 770 512 L 590 632 Z" fill="#e3a94a"/>
+</svg>

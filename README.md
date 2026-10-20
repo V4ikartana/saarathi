@@ -82,6 +82,13 @@ examples/health-widget/demo.sh codex-only       # hosts without Claude Code
 Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (question, approval, review or pause) ·
 `4` failed · `5` policy blocks progress · `6` another engine holds the project lock.
 
+## Desktop app (preview)
+
+[`desktop/`](desktop/) holds Saarathi Desktop (Tauri 2 + React), a control layer over the same engine. It lets you
+work through conversation sessions, watch live run events, approve plans and reviews, and stop, cancel or resume runs.
+It talks to the engine only through `saarathi bridge --stdio` (ADR-0013), and runs keep going when the window closes.
+It is a v0.1 foundation: no installers yet. See [desktop/README.md](desktop/README.md).
+
 ## Configuration
 
 `saarathi init` writes `.saarathi/policies.yaml`. The defaults:

@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+/* Saarathi Desktop tokens. Dark first; light follows the system unless the user picks a theme. */
+@theme {
+  --color-bg: #0e1013;
+  --color-panel: #15181d;
+  --color-raised: #1b1f25;
+  --color-line: #262b33;
+  --color-ink: #e7e9ee;
+  --color-muted: #8b93a1;
+  --color-faint: #5d6573;
+  --color-accent: #e3a94a;
+  --color-accent-ink: #1a1306;
+  --color-ok: #4fb87a;
+  --color-warn: #d9a441;
+  --color-err: #e0645c;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not(.dark) {
+    --color-bg: #f7f7f5;
+    --color-panel: #ffffff;
+    --color-raised: #f1f1ee;
+    --color-line: #e2e2dd;
+    --color-ink: #17191c;
+    --color-muted: #5b6270;
+    --color-faint: #8a909b;
+    --color-accent: #b9771a;
+    --color-accent-ink: #ffffff;
+  }
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+.prose-sm p { margin: 0.35rem 0; }
+.prose-sm code { font-family: var(--font-mono); font-size: 12px; background: var(--color-raised); padding: 0 4px; border-radius: 4px; }
+.prose-sm pre { background: var(--color-raised); padding: 10px; border-radius: 8px; overflow-x: auto; }
+.prose-sm ul { padding-left: 1.2rem; list-style: disc; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 8px; border: 2px solid var(--color-bg); }

@@ -20,17 +20,26 @@ from saarathi.runtime.process import process_alive
 DRIVER_EXIT_WAIT_SECONDS = 10.0
 # Drivers this process started. Polling them reaps finished ones, which would otherwise linger as zombies
 # that look alive to a liveness check on POSIX.
-_children: dict[int, subprocess.Popen[bytes]] = {}
+_children: dict[int, tuple[subprocess.Popen[bytes], str]] = {}  # pid -> (process, project root)
 
 
 def _reap() -> None:
-    for pid, child in list(_children.items()):
+    for pid, (child, _root) in list(_children.items()):
         if child.poll() is not None:
             del _children[pid]
 
 
 def driver_pid(project: Project) -> int | None:
-    """Pid recorded by the engine that last held the project lock, if it is still running."""
+    """Pid of the driver for this project, if one is running.
+
+    A driver this bridge just started counts at once, before it has taken the engine lock; otherwise the pid
+    recorded in the lock file is used (a driver started by an earlier bridge or from the CLI).
+    """
+    _reap()
+    root = str(project.root)
+    for pid, (_child, child_root) in _children.items():
+        if child_root == root:
+            return pid
     lock = project.meta / "engine.lock"
     try:
         raw = lock.read_bytes()
@@ -41,10 +50,8 @@ def driver_pid(project: Project) -> int | None:
     if not digits:
         return None
     pid = int(digits)
-    _reap()
-    child = _children.get(pid)
-    if child is not None:
-        return pid if child.poll() is None else None
+    if pid in _children:
+        return pid
     if pid == os.getpid() or not process_alive(pid):
         return None
     return pid
@@ -100,7 +107,7 @@ def start_driver(project: Project, run_id: str, *, accept_defaults: bool = False
                 start_new_session=True,
                 close_fds=True,
             )
-    _children[proc.pid] = proc
+    _children[proc.pid] = (proc, str(project.root))
     return proc.pid
 
 

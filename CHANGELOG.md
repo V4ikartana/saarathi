@@ -57,6 +57,11 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 - Windows support (ADR-0012): portable process-tree termination and liveness checks, `msvcrt` engine lock,
   Windows environment allowlist, LF memory files; a Windows CI job runs the full suite.
 
+- Saarathi Desktop foundation (ADR-0013): `saarathi bridge --stdio` (JSON-RPC protocol 1) with conversation
+  sessions (migration 5), detached run drivers, live event notifications, stop/cancel/resume, idempotent sends
+  and approvals; a Tauri 2 + React app over it with projects, sessions, the conversation and run controls, and an
+  execution panel. CI builds and tests the desktop app on Linux, macOS and Windows.
+
 ### Fixed
 - The command policy now recognises versioned and Windows program names (`python3.12 -c`, `Python.EXE -c`,
   `cmd /c`, PowerShell `-Command`) and drive-letter paths.

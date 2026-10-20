@@ -117,6 +117,10 @@ returns the first result, so a double click or replay never starts two runs.
 
 ## 6. Milestones
 
+Status (2026-10-20): **M1 done** (bridge with end-to-end tests). **M2 done**: verified by driving a full run through the
+real app on macOS (open repo → session → request → plan approval → execution → review → completion → restart
+restores the session). Windows and Linux are compile- and test-checked in CI only.
+
 | # | Milestone | Validated by |
 |---|---|---|
 | M1 | Bridge v1: protocol, sessions (migration 5), runs start/approve/answer/stop/cancel/resume, detached drivers, event subscription | pytest: lifecycle, idempotency, cancellation, crash and reattach, protocol errors |
@@ -127,8 +131,7 @@ returns the first result, so a double click or replay never starts two runs.
 
 ## 7. Blockers and risks
 
-1. **Rust toolchain missing on the development Mac** (blocks M2). Tauri 2 needs `rustup` and stable Rust. This needs the
-   owner's go-ahead to install.
+1. ~~Rust toolchain missing~~: resolved. Stable Rust 1.99.1 was installed with rustup on 2026-10-19.
 2. **Shipping Python with the app** (M5). v0.1 can require an installed `saarathi` (`uv tool install`). A self-contained
    installer needs a bundled Python sidecar (PyInstaller or similar), plus code signing and notarization on macOS
    and Windows, which need developer certificates the owner would have to obtain.

@@ -301,7 +301,8 @@ class BridgeService:
         elif run.state is RunState.PAUSED and engine.pending_approval(run_id):
             pending = "escalation"
         pid = driver_pid(p)
-        driving = pid is not None and p.store.active_run() is not None and p.store.active_run().id == run_id  # type: ignore[union-attr]
+        active = p.store.active_run()
+        driving = pid is not None and active is not None and active.id == run_id
         return {
             **status,
             "pending_approval": pending,
