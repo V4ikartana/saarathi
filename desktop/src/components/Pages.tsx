@@ -734,8 +734,11 @@ export function SettingsPage() {
         <dl className="space-y-1 text-[12px]">
           <div><dt className="inline text-faint">Saarathi: </dt><dd className="inline">{bridge ? `${bridge.saarathi_version} (protocol ${bridge.protocol}, Python ${bridge.python})` : "not connected"}</dd></div>
           <div><dt className="inline text-faint">Data directory: </dt><dd className="inline"><Mono>{bridge?.data_dir ?? "—"}</Mono></dd></div>
-          <div><dt className="inline text-faint">Bridge command: </dt><dd className="inline"><Mono>{diag?.command ?? "—"}</Mono></dd></div>
-          <div className="text-faint">Set <Mono>SAARATHI_BRIDGE</Mono> to use a specific <Mono>saarathi</Mono>; otherwise the app finds it on your login shell's PATH.</div>
+          <div><dt className="inline text-faint">Engine: </dt><dd className="inline">
+            {diag ? { bundled: "bundled with the app", SAARATHI_BRIDGE: "from SAARATHI_BRIDGE", PATH: "saarathi on your PATH" }[diag.source] : "—"}
+          </dd></div>
+          <div><dt className="inline text-faint">Command: </dt><dd className="inline break-anywhere"><Mono>{diag?.command ?? "—"}</Mono></dd></div>
+          <div className="text-faint">The app uses its bundled engine. Developers can point <Mono>SAARATHI_BRIDGE</Mono> at another <Mono>saarathi</Mono>.</div>
         </dl>
       </Card>
     </PageShell>

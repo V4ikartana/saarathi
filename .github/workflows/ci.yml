@@ -69,6 +69,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
+      - name: Placeholder engine sidecar (the real one is built by the release workflow)
+        shell: bash
+        run: |
+          triple=$(rustc -vV | sed -n 's/^host: //p')
+          ext=""; [ "${{ runner.os }}" = "Windows" ] && ext=".exe"
+          mkdir -p src-tauri/binaries
+          touch "src-tauri/binaries/saarathi-${triple}${ext}"
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml

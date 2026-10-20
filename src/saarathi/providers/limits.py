@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from saarathi.runtime.binaries import NO_WINDOW, cli_env
+
 
 @dataclass(frozen=True)
 class LimitWindow:
@@ -159,7 +161,8 @@ def read_codex_limits(
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
-        env=dict(env),
+        env=cli_env([binary], env),
+        creationflags=NO_WINDOW,
     )
     assert proc.stdin is not None and proc.stdout is not None
     deadline = time.monotonic() + timeout
@@ -272,12 +275,13 @@ def parse_agy_usage(stdout: str) -> list[LimitWindow]:
 def run_text(argv: Sequence[str], env: Mapping[str, str], timeout: float) -> str:
     proc = subprocess.run(
         list(argv),
-        env=dict(env),
+        env=cli_env(argv, env),
         capture_output=True,
         text=True,
         timeout=timeout,
         check=False,
         stdin=subprocess.DEVNULL,
+        creationflags=NO_WINDOW,
     )
     if proc.returncode != 0:
         raise ValueError((proc.stderr or proc.stdout).strip()[-200:] or f"exit {proc.returncode}")

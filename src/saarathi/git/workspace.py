@@ -17,6 +17,7 @@ from pathlib import Path
 from platformdirs import user_data_dir
 
 from saarathi.core.errors import SaarathiError
+from saarathi.runtime.binaries import NO_WINDOW
 from saarathi.security.env import filtered_env
 
 SAARATHI_AUTHOR = ("Saarathi", "saarathi@localhost")
@@ -93,6 +94,7 @@ class GitRepo:
             text=True,
             check=False,
             stdin=subprocess.DEVNULL,
+            creationflags=NO_WINDOW,
         )
 
     def git(self, *args: str, cwd: Path | None = None, check: bool = True) -> str:

@@ -142,6 +142,12 @@ Code as lead and Claude Code plus Codex as workers, driven and approved in the a
 ([evidence](../phase0/evidence/live-desktop-claude-codex.md)). Windows and Linux are compile- and test-checked in CI
 only.
 
+**M5 done** (2026-10-20): the engine ships inside the app as a PyInstaller sidecar, found before any `saarathi` on
+the PATH; installers for macOS (.dmg), Windows (.exe, .msi) and Linux (.deb, .AppImage) come from the Release
+workflow; provider CLIs resolve to stable paths; console windows are suppressed on Windows. The macOS installer was
+smoke-tested (bundled engine, hardened runtime, real providers); Windows and Linux are built and checked in CI only.
+Signing needs the owner's certificates ([signing](../release/signing.md)).
+
 | # | Milestone | Validated by |
 |---|---|---|
 | M1 | Bridge v1: protocol, sessions (migration 5), runs start/approve/answer/stop/cancel/resume, detached drivers, event subscription | pytest: lifecycle, idempotency, cancellation, crash and reattach, protocol errors |

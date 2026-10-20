@@ -25,6 +25,7 @@ from saarathi.core.contracts import (
 from saarathi.core.policy import ProviderConfig
 from saarathi.providers.limits import ProviderLimits
 from saarathi.providers.model_catalog import classify
+from saarathi.runtime.binaries import NO_WINDOW, cli_env
 
 
 class InvocationMode(StrEnum):
@@ -131,12 +132,13 @@ def run_quick(argv: Sequence[str], env: Mapping[str, str], timeout: float = 20.0
     try:
         proc = subprocess.run(
             list(argv),
-            env=dict(env),
+            env=cli_env(argv, env),
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
             stdin=subprocess.DEVNULL,
+            creationflags=NO_WINDOW,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return None, "", str(exc)

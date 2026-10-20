@@ -5,7 +5,7 @@ action goes through `saarathi bridge --stdio` (JSON-RPC, protocol 1, no network 
 [ADR-0013](../docs/architecture/decisions/ADR-0013-desktop-bridge.md) and
 [the architecture](../docs/desktop/architecture.md)).
 
-> **Status: v0.1 (milestones M1–M4 and the redesign in [DESIGN.md](DESIGN.md)).** Open a repository, manage sessions, send a request, watch real engine events
+> **Status: v0.1 (milestones M1–M5; design in [DESIGN.md](DESIGN.md)).** Open a repository, manage sessions, send a request, watch real engine events
 > stream in, answer the lead's questions, approve the plan and final review, stop, cancel and resume runs, and see
 > sessions restored after a restart. Inspect any task (attempts, verification evidence, routing decisions, Monaco
 > diffs, xterm.js logs) and follow the run on a timeline. Choose a session's approval preset and worker model, review
@@ -25,8 +25,19 @@ npm install
 SAARATHI_BRIDGE="$(cd .. && pwd)/.venv/bin/saarathi" npx tauri dev
 ```
 
-`SAARATHI_BRIDGE` points the app at a specific `saarathi` executable. Without it, the app looks up `saarathi` on the
-PATH of your login shell. The app reads that PATH explicitly, because apps opened from the Finder or Dock do not
+`SAARATHI_BRIDGE` points the app at a specific `saarathi` executable. Otherwise the app uses the engine bundled next
+to it, then `saarathi` on the PATH of your login shell.
+
+## Build the installers
+
+```bash
+uv run --group release python scripts/build_engine.py   # the engine sidecar, from the repository root
+cd desktop && npx tauri build                             # .dmg / .msi + .exe / .deb + .AppImage for this OS
+```
+
+The Release workflow does both on macOS, Windows and Linux; see [installing](../docs/release/installing.md) and
+[signing](../docs/release/signing.md). Without a built sidecar, `cargo` refuses to build: create an empty
+`src-tauri/binaries/saarathi-<target-triple>` for checks only, as CI does. The app reads that PATH explicitly, because apps opened from the Finder or Dock do not
 inherit your shell's PATH, and provider CLIs installed through `fnm`, `nvm` or `~/.local/bin` would otherwise be invisible.
 
 ## Checks

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from collections.abc import Sequence
 from typing import Any
 
@@ -29,6 +28,7 @@ from saarathi.providers.base import (
     run_quick,
 )
 from saarathi.providers.limits import ProviderLimits, read_codex_limits
+from saarathi.runtime.binaries import find_cli
 from saarathi.runtime.process import run_process, write_log
 from saarathi.security.env import filtered_env
 from saarathi.security.redaction import Redactor
@@ -81,7 +81,7 @@ class CodexCliAdapter(ProviderAdapter):
     )
 
     def _binary(self) -> str | None:
-        return self.config.binary or shutil.which("codex")
+        return find_cli("codex", self.config.binary)
 
     def _env(self, extra: tuple[str, ...] | list[str] = ()) -> dict[str, str]:
         return filtered_env([*ENV_NAMES, *extra])

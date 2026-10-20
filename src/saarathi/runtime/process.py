@@ -17,6 +17,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from saarathi.runtime.binaries import NO_WINDOW, cli_env
+
 TERM_GRACE_SECONDS = 5.0
 
 
@@ -60,7 +62,7 @@ def terminate_tree(pid: int, *, force: bool = False) -> bool:
     """Ask a child and everything it started to stop (``force``: kill outright). True if a signal was sent."""
     if sys.platform == "win32":
         argv = ["taskkill", "/PID", str(pid), "/T", *(["/F"] if force else [])]
-        done = subprocess.run(argv, capture_output=True, check=False, stdin=subprocess.DEVNULL)
+        done = subprocess.run(argv, capture_output=True, check=False, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         return done.returncode == 0
     try:
         os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
@@ -71,7 +73,7 @@ def terminate_tree(pid: int, *, force: bool = False) -> bool:
 
 def _spawn_options() -> dict[str, object]:
     if sys.platform == "win32":
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | NO_WINDOW}
     return {"start_new_session": True}
 
 
@@ -106,7 +108,7 @@ async def run_process(
     proc = await asyncio.create_subprocess_exec(
         *argv,
         cwd=str(cwd),
-        env=dict(env),
+        env=cli_env(argv, env),  # a provider CLI's own directory first on PATH (Node-based CLIs need node)
         stdin=asyncio.subprocess.PIPE if stdin_data is not None else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

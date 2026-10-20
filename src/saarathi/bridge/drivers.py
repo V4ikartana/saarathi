@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from saarathi.orchestration.project import Project
+from saarathi.runtime.binaries import engine_command
 from saarathi.runtime.process import process_alive
 
 DRIVER_EXIT_WAIT_SECONDS = 10.0
@@ -83,7 +84,7 @@ def start_driver(project: Project, run_id: str, *, accept_defaults: bool = False
     existing = wait_for_exit(project)
     if existing is not None:
         return existing
-    argv = [sys.executable, "-m", "saarathi", "resume", "--run", run_id, "--non-interactive"]
+    argv = [*engine_command(), "resume", "--run", run_id, "--non-interactive"]
     if accept_defaults:
         argv.append("--accept-defaults")
     log = driver_log(project, run_id)

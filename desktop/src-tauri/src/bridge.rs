@@ -77,10 +77,29 @@ impl Default for BridgeState {
     }
 }
 
-/// The command used to start the bridge: `SAARATHI_BRIDGE` (a path to a `saarathi` executable) or `saarathi`.
-fn bridge_command() -> (String, Vec<String>) {
-    let program = std::env::var("SAARATHI_BRIDGE").unwrap_or_else(|_| "saarathi".to_string());
-    (program, vec!["bridge".into(), "--stdio".into()])
+/// The engine bundled with the app (a Tauri sidecar placed next to the app's executable), if present.
+fn bundled_engine() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let name = if cfg!(windows) {
+        "saarathi.exe"
+    } else {
+        "saarathi"
+    };
+    let candidate = exe.parent()?.join(name);
+    candidate.is_file().then_some(candidate)
+}
+
+/// Where the engine comes from, in order: `SAARATHI_BRIDGE` (a developer override), the engine bundled with the
+/// app (always the protocol version this app speaks), then `saarathi` on the PATH.
+fn bridge_command() -> (String, Vec<String>, &'static str) {
+    let args = vec!["bridge".into(), "--stdio".into()];
+    if let Ok(program) = std::env::var("SAARATHI_BRIDGE") {
+        return (program, args, "SAARATHI_BRIDGE");
+    }
+    if let Some(path) = bundled_engine() {
+        return (path.to_string_lossy().into_owned(), args, "bundled");
+    }
+    ("saarathi".to_string(), args, "PATH")
 }
 
 /// GUI apps on macOS and Linux do not inherit the login shell's PATH, so provider CLIs installed through
@@ -103,7 +122,7 @@ fn login_shell_path() -> Option<String> {
 
 impl BridgeState {
     fn spawn(&self, app: &AppHandle) -> Result<(), String> {
-        let (program, args) = bridge_command();
+        let (program, args, _source) = bridge_command();
         let mut cmd = Command::new(&program);
         cmd.args(&args)
             .stdin(Stdio::piped())
@@ -112,9 +131,16 @@ impl BridgeState {
         if let Some(path) = login_shell_path() {
             cmd.env("PATH", path);
         }
+        #[cfg(windows)]
+        {
+            // The bundled engine is a console program; without this Windows opens a console window for it.
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
         let mut child = cmd
             .spawn()
-            .map_err(|e| format!("could not start `{program} bridge --stdio`: {e}. Install saarathi or set SAARATHI_BRIDGE."))?;
+            .map_err(|e| format!("could not start `{program} bridge --stdio`: {e}. Reinstall Saarathi, or set SAARATHI_BRIDGE."))?;
         let stdin = child.stdin.take().ok_or("bridge stdin unavailable")?;
         let stdout = child.stdout.take().ok_or("bridge stdout unavailable")?;
         let stderr = child.stderr.take().ok_or("bridge stderr unavailable")?;
@@ -221,7 +247,8 @@ impl BridgeState {
     }
 
     pub fn diagnostics(&self) -> Value {
-        json!({"running": self.alive(), "command": bridge_command().0,
+        let (command, _, source) = bridge_command();
+        json!({"running": self.alive(), "command": command, "source": source,
                "stderr_tail": self.stderr_tail.lock().unwrap().clone()})
     }
 

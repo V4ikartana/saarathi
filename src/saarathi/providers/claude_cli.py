@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 from collections.abc import Sequence
 from typing import Any
@@ -33,6 +32,7 @@ from saarathi.providers.base import (
     run_quick,
 )
 from saarathi.providers.limits import ProviderLimits, parse_claude_usage, run_text
+from saarathi.runtime.binaries import find_cli
 from saarathi.runtime.process import run_process, write_log
 from saarathi.security.env import filtered_env
 from saarathi.security.redaction import Redactor
@@ -64,7 +64,7 @@ class ClaudeCodeAdapter(ProviderAdapter):
     )
 
     def _binary(self) -> str | None:
-        return self.config.binary or shutil.which("claude")
+        return find_cli("claude", self.config.binary)
 
     def _env(self, extra: tuple[str, ...] | list[str] = ()) -> dict[str, str]:
         return filtered_env([*ENV_NAMES, *extra])

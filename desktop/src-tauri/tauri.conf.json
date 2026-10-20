@@ -18,7 +18,7 @@
         "minWidth": 960,
         "minHeight": 600,
         "resizable": true,
-        "backgroundColor": "#0e1013"
+        "backgroundColor": "#09090b"
       }
     ],
     "security": {
@@ -36,6 +36,38 @@
       "icons/icon.ico"
     ],
     "shortDescription": "Many agents. One direction.",
-    "category": "DeveloperTool"
+    "category": "DeveloperTool",
+    "externalBin": [
+      "binaries/saarathi"
+    ],
+    "publisher": "Vaikartana",
+    "copyright": "Copyright \u00a9 2026 Vaikartana. Apache-2.0.",
+    "longDescription": "Saarathi orchestrates Claude Code, Codex and Antigravity under one engineering lead: plans, isolated parallel work, verification and review.",
+    "homepage": "https://github.com/V4ikartana/saarathi",
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      },
+      "wix": {
+        "language": "en-US"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
   }
 }

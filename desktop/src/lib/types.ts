@@ -408,6 +408,7 @@ export interface DoctorReport {
 export interface BridgeDiagnostics {
   running: boolean;
   command: string;
+  source: "bundled" | "SAARATHI_BRIDGE" | "PATH";
   stderr_tail: string[] | string;
 }
 

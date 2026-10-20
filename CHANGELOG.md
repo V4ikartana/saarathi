@@ -120,6 +120,13 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   `saarathi policy set KEY VALUE`. Bridge: `policy.update` (dry run by default).
 - Desktop: Enter sends a request and Shift+Enter adds a line; a first-launch guided tour (replay from Settings or ⌘K);
   the session controls show a loading state while the provider CLIs answer.
+- Desktop M5, packaging: the engine is bundled with the app (a PyInstaller sidecar built by
+  `scripts/build_engine.py`), so no Python or terminal setup is needed; the app prefers it over a `saarathi` on the
+  PATH (`SAARATHI_BRIDGE` still overrides). Installers: macOS .dmg (ad-hoc signed, hardened runtime), Windows NSIS
+  .exe and .msi, Linux .deb and .AppImage, built by the new Release workflow (manual run, or a tag for a draft
+  release). Signing and notarization switch on when the secrets exist (`docs/release/signing.md`). Provider CLIs found
+  in per-shell directories (fnm) resolve to their real installation, Node-based CLIs get their own directory on PATH,
+  and child processes never open console windows on Windows. Install guide: `docs/release/installing.md`.
 - Fixed: on a machine booted less than ten minutes earlier, the first plan-limits read was skipped because "never
   read" was stored as monotonic time 0.
 

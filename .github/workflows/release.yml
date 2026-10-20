@@ -1,0 +1,107 @@
+name: Release
+
+# Builds the desktop installers with the bundled engine on macOS, Windows and Linux.
+# - Run by hand (Actions → Release → Run workflow) to get installers as workflow artifacts.
+# - Push a tag such as v0.1.0 to also create a DRAFT GitHub release; nothing is published until a person publishes it.
+# Signing turns on only when the secrets exist (see docs/release/signing.md); otherwise builds are ad-hoc signed
+# (macOS) or unsigned (Windows), and the install guide explains the first-launch prompts.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            bundles: app,dmg
+          - os: windows-latest
+            bundles: nsis,msi
+          - os: ubuntu-22.04 # older glibc, so the AppImage and .deb run on more distributions
+            bundles: deb,appimage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Linux system libraries for Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Build the engine sidecar
+        run: uv run --group release python scripts/build_engine.py
+      - name: Install frontend dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Build installers
+        working-directory: desktop
+        shell: bash
+        env:
+          # macOS signing and notarization (optional; all six must be set to take effect)
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "${APPLE_SIGNING_IDENTITY}" ]; then
+            unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID
+          fi
+          npx tauri build --bundles ${{ matrix.bundles }}
+      - name: Check the bundled engine starts
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            macOS) desktop/src-tauri/target/release/bundle/macos/Saarathi.app/Contents/MacOS/saarathi version ;;
+            Windows) desktop/src-tauri/target/release/saarathi.exe version ;;
+            Linux) desktop/src-tauri/target/release/saarathi version ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saarathi-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+            desktop/src-tauri/target/release/bundle/deb/*.deb
+            desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Checksums
+        run: cd installers && sha256sum * > SHA256SUMS.txt
+      - name: Create a draft release (a person publishes it)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" installers/* --repo "${GITHUB_REPOSITORY}" --draft \
+            --title "Saarathi ${GITHUB_REF_NAME}" --notes "Draft. See CHANGELOG.md and docs/release/installing.md."
