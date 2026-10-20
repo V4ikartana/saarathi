@@ -10,6 +10,8 @@ import time
 
 import pytest
 
+from saarathi.bridge.drivers import INTERRUPT_CONTROL
+from saarathi.storage.store import StateStore
 from tests.e2e.helpers import GOOD_T1, GOOD_T2, init_project, make_script
 
 
@@ -165,6 +167,24 @@ def test_cancel_interrupts_the_driver(client, repo, tmp_path):
     snap = client.ok("runs.status", project=project, run=run_id)
     assert not snap["driver"]["running"] and snap["terminal"]
     assert client.call("runs.cancel", project=project, run=run_id)["error"]["data"]["kind"] == "invalid_state"
+
+
+def test_stored_interrupt_request_stops_the_driver_without_a_signal(client, repo, tmp_path):
+    """The only cancel channel on Windows, where a detached driver cannot receive a console control event."""
+    project = setup_project(repo, tmp_path, {"T-001": [GOOD_T1], "T-002": [{"sleep": 60, **GOOD_T2}]})
+    session = client.ok("sessions.create", project=project)
+    run_id = client.ok("sessions.send", project=project, session=session["id"], text="go")["run_id"]
+    wait_for(client, project, run_id, lambda s: s["pending_approval"] == "plan")
+    client.ok("runs.approve", project=project, run=run_id)
+    wait_for(
+        client,
+        project,
+        run_id,
+        lambda s: any(t["id"] == "T-002" and t["state"] == "RUNNING" for t in s["tasks"]) and s["driver"]["running"],
+    )
+    StateStore(repo / ".saarathi" / "state.db").set_control(run_id, INTERRUPT_CONTROL, "1", actor="test")
+    snap = wait_for(client, project, run_id, lambda s: not s["driver"]["running"], timeout=30)
+    assert snap["state"] == "PAUSED"
 
 
 def test_stop_pauses_after_in_flight_work(client, repo, tmp_path):

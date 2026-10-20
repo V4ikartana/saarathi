@@ -7,6 +7,7 @@ driver per project: a duplicate start simply fails to take the lock and exits.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -18,6 +19,8 @@ from saarathi.orchestration.project import Project
 from saarathi.runtime.process import process_alive
 
 DRIVER_EXIT_WAIT_SECONDS = 10.0
+# Run control a driver polls for and treats as Ctrl-C (see ``saarathi.cli.main._watch_for_interrupt``).
+INTERRUPT_CONTROL = "interrupt_requested"
 # Drivers this process started. Polling them reaps finished ones, which would otherwise linger as zombies
 # that look alive to a liveness check on POSIX.
 _children: dict[int, tuple[subprocess.Popen[bytes], str]] = {}  # pid -> (process, project root)
@@ -111,13 +114,13 @@ def start_driver(project: Project, run_id: str, *, accept_defaults: bool = False
     return proc.pid
 
 
-def interrupt_driver(pid: int) -> bool:
-    """Ask a driver to stop the way Ctrl-C would: in-flight attempts are cancelled and the run pauses."""
-    try:
-        if sys.platform == "win32":
-            os.kill(pid, signal.CTRL_BREAK_EVENT)
-        else:
+def interrupt_driver(project: Project, run_id: str, pid: int) -> None:
+    """Ask a driver to stop the way Ctrl-C would: in-flight attempts are cancelled and the run pauses.
+
+    The request is stored as a run control, which every driver polls. Windows cannot send a console control event
+    to a detached process, so that is the only channel there; on POSIX a SIGINT also delivers it at once.
+    """
+    project.store.set_control(run_id, INTERRUPT_CONTROL, "1", actor="user")
+    if sys.platform != "win32":
+        with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
             os.kill(pid, signal.SIGINT)
-        return True
-    except (ProcessLookupError, PermissionError, OSError):
-        return False

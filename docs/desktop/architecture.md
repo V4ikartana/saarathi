@@ -85,7 +85,7 @@ JSON-RPC 2.0, one JSON object per line on stdout. stderr is for logs only. Every
 | `runs.approve {run}` | Approve the plan, a pending escalation or the final review (engine decides which) |
 | `runs.answer {run, question, text}` | Clarification answer |
 | `runs.stop {run}` | Graceful: stop dispatching; in-flight attempts finish, then the run pauses |
-| `runs.cancel {run}` | Interrupt the driver (SIGINT / CTRL_BREAK), wait for it to pause, then mark the run `CANCELLED` |
+| `runs.cancel {run}` | Interrupt the driver (a stored interrupt request every driver polls, plus SIGINT on POSIX; Windows cannot signal a detached process), wait for it to pause, then mark the run `CANCELLED` |
 | `runs.resume {run}` | Start a driver for a paused or crashed run |
 | `tasks.diff {run, task}` / `tasks.logs {run, task}` | Git diff of a task branch against its base; redacted logs |
 | `models.list {project}` / `providers.status {project}` | Catalogue, availability, cooldowns |

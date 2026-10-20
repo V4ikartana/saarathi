@@ -13,7 +13,14 @@ from pathlib import Path
 from typing import Any
 
 from saarathi import __version__
-from saarathi.bridge.drivers import driver_log, driver_pid, interrupt_driver, start_driver, wait_for_exit
+from saarathi.bridge.drivers import (
+    INTERRUPT_CONTROL,
+    driver_log,
+    driver_pid,
+    interrupt_driver,
+    start_driver,
+    wait_for_exit,
+)
 from saarathi.bridge.sessions import SessionStore
 from saarathi.bridge.timeline import render_event
 from saarathi.cli.output import ModelOut
@@ -381,13 +388,14 @@ class BridgeService:
             raise BridgeError("invalid_state", f"run is already {p.store.get_run(run).state}")
         pid = driver_pid(p)
         if pid is not None:
-            interrupt_driver(pid)
+            interrupt_driver(p, run, pid)
             deadline = time.monotonic() + CANCEL_WAIT_SECONDS
             while driver_pid(p) is not None and time.monotonic() < deadline:
                 time.sleep(0.2)
             if driver_pid(p) is not None:
                 raise BridgeError("locked", "the driver did not stop in time", hint="try again in a moment")
         with p.engine_lock():
+            p.store.pop_control(run, INTERRUPT_CONTROL)
             p.store.transition_run(run, RunState.CANCELLED, actor="user", reason="cancelled from the desktop app")
         return {"state": p.store.get_run(run).state}
 

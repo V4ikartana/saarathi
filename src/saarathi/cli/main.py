@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import _thread
 import asyncio
 import contextlib
 import json
 import signal
+import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -16,6 +20,7 @@ from typing import Annotated, Any
 import typer
 
 from saarathi import __version__
+from saarathi.bridge.drivers import INTERRUPT_CONTROL
 from saarathi.cli.output import (
     AccountOut,
     AccountsOut,
@@ -168,8 +173,38 @@ def _interrupt_on_termination() -> None:
                 signal.signal(sig, signal.default_int_handler)
 
 
+def _watch_for_interrupt(project: Project, run_id: str) -> None:
+    """Treat a stored interrupt request (the desktop's Cancel) as Ctrl-C.
+
+    Windows cannot deliver a console control event to a detached driver, so the bridge records the request in the
+    run's controls instead; this daemon thread polls for it with its own read-only connection.
+    """
+    project.store.pop_control(run_id, INTERRUPT_CONTROL)  # a stale request must not stop this new driver
+    uri = project.store.path.resolve().as_uri() + "?mode=ro"
+
+    def poll() -> None:
+        try:
+            conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        except sqlite3.Error:
+            return
+        while True:
+            time.sleep(0.5)
+            try:
+                row = conn.execute(
+                    "SELECT 1 FROM control WHERE run_id=? AND key=?", (run_id, INTERRUPT_CONTROL)
+                ).fetchone()
+            except sqlite3.Error:
+                continue
+            if row is not None:
+                _thread.interrupt_main(signal.SIGINT)
+                return
+
+    threading.Thread(target=poll, name="saarathi-interrupt-watch", daemon=True).start()
+
+
 def _drive(project: Project, engine: Engine, run_id: str, json_out: bool) -> None:
     _interrupt_on_termination()
+    _watch_for_interrupt(project, run_id)
     try:
         state = asyncio.run(engine.drive(run_id))
     except KeyboardInterrupt:
