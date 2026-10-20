@@ -1,47 +1,56 @@
 @import "tailwindcss";
 
-/* Saarathi Desktop tokens. Dark first; light follows the system unless the user picks a theme. */
+/*
+ * Saarathi Desktop design tokens. Dark by default; light when the system or the person asks for it.
+ * Contrast targets: ink and muted text >= 7:1 and >= 4.5:1 on the background, faint text >= 4.5:1.
+ * The accent is set at runtime (lib/theme.ts) so people can choose it.
+ */
 @theme {
-  --color-bg: #0e1013;
-  --color-panel: #15181d;
-  --color-raised: #1b1f25;
-  --color-line: #262b33;
-  --color-ink: #e7e9ee;
-  --color-muted: #8b93a1;
-  --color-faint: #5d6573;
-  --color-accent: #e3a94a;
-  --color-accent-ink: #1a1306;
-  --color-ok: #4fb87a;
-  --color-warn: #d9a441;
-  --color-err: #e0645c;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --color-bg: #0b0c0f;
+  --color-panel: #121418;
+  --color-raised: #1b1e24;
+  --color-line: #2b3038;
+  --color-ink: #f3f4f6;
+  --color-muted: #b0b6c1;
+  --color-faint: #848c99;
+  --color-accent: var(--accent, #f0b44c);
+  --color-accent-ink: var(--accent-ink, #1c1405);
+  --color-ok: #4cc38a;
+  --color-warn: #ebb34f;
+  --color-err: #f27a73;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI Variable",
+    "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Light: the system's choice unless the user forced dark, or always when the user forced light. */
-:root.light {
-  --color-bg: #f7f7f5;
-  --color-panel: #ffffff;
-  --color-raised: #f1f1ee;
-  --color-line: #e2e2dd;
-  --color-ink: #17191c;
-  --color-muted: #5b6270;
-  --color-faint: #8a909b;
-  --color-accent: #b9771a;
-  --color-accent-ink: #ffffff;
-}
-
-@media (prefers-color-scheme: light) {
-  :root:not(.dark) {
-    --color-bg: #f7f7f5;
+@layer base {
+  :root.light {
+    --color-bg: #f5f5f7;
     --color-panel: #ffffff;
-    --color-raised: #f1f1ee;
-    --color-line: #e2e2dd;
-    --color-ink: #17191c;
-    --color-muted: #5b6270;
-    --color-faint: #8a909b;
-    --color-accent: #b9771a;
-    --color-accent-ink: #ffffff;
+    --color-raised: #ececf0;
+    --color-line: #d6d6dc;
+    --color-ink: #1d1d1f;
+    --color-muted: #48484d;
+    --color-faint: #6b6b71;
+    --color-ok: #1f8a55;
+    --color-warn: #a86400;
+    --color-err: #c9372c;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not(.dark) {
+      --color-bg: #f5f5f7;
+      --color-panel: #ffffff;
+      --color-raised: #ececf0;
+      --color-line: #d6d6dc;
+      --color-ink: #1d1d1f;
+      --color-muted: #48484d;
+      --color-faint: #6b6b71;
+      --color-ok: #1f8a55;
+      --color-warn: #a86400;
+      --color-err: #c9372c;
+    }
   }
 }
 
@@ -52,11 +61,35 @@ body {
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 14px;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
+h1, h2, h3 { letter-spacing: -0.015em; }
+::selection { background: color-mix(in oklab, var(--color-accent) 35%, transparent); }
+
+/* Every interactive element eases instead of snapping; motion-sensitive people get none (see lib/theme.ts). */
+button, a, input, select, textarea, [role="tab"] {
+  transition: background-color 180ms var(--ease-soft), color 180ms var(--ease-soft),
+    border-color 180ms var(--ease-soft), box-shadow 220ms var(--ease-soft), opacity 180ms var(--ease-soft);
+}
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+  transition-duration: 1ms !important;
+  animation-duration: 1ms !important;
+}
+
+:focus-visible { outline: 2px solid color-mix(in oklab, var(--color-accent) 70%, transparent); outline-offset: 2px; border-radius: 6px; }
+
+.glass {
+  background: color-mix(in oklab, var(--color-panel) 78%, transparent);
+  backdrop-filter: saturate(180%) blur(18px);
+  -webkit-backdrop-filter: saturate(180%) blur(18px);
+}
+
 .prose-sm p { margin: 0.35rem 0; }
 .prose-sm code { font-family: var(--font-mono); font-size: 12px; background: var(--color-raised); padding: 0 4px; border-radius: 4px; }
 .prose-sm pre { background: var(--color-raised); padding: 10px; border-radius: 8px; overflow-x: auto; }
 .prose-sm ul { padding-left: 1.2rem; list-style: disc; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 8px; border: 2px solid var(--color-bg); }
+::-webkit-scrollbar-track { background: transparent; }

@@ -1,16 +1,21 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { motion, type HTMLMotionProps } from "motion/react";
+import { useId, type ReactNode } from "react";
 
 import { cn, STATE_LABEL, stateTone } from "../lib/ui";
 
+/** One spring for the whole app, so every movement feels like it belongs to the same system. */
+export const SPRING = { type: "spring", stiffness: 520, damping: 38, mass: 0.8 } as const;
+export const SOFT = { type: "spring", stiffness: 260, damping: 30 } as const;
+
 const button = cva(
-  "inline-flex items-center gap-1.5 rounded-md px-2.5 h-8 text-[13px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60",
+  "inline-flex select-none items-center gap-1.5 rounded-lg px-3 h-8 text-[13px] font-medium disabled:opacity-40 disabled:cursor-not-allowed",
   {
     variants: {
       tone: {
-        primary: "bg-accent text-accent-ink hover:brightness-110",
+        primary: "bg-accent text-accent-ink shadow-sm shadow-black/10 hover:brightness-110",
         ghost: "text-muted hover:text-ink hover:bg-raised",
-        outline: "border border-line text-ink hover:bg-raised",
+        outline: "border border-line text-ink hover:bg-raised hover:border-faint/50",
         danger: "border border-err/40 text-err hover:bg-err/10",
       },
     },
@@ -18,8 +23,11 @@ const button = cva(
   },
 );
 
-export function Button({ tone, className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof button>) {
-  return <button type="button" className={cn(button({ tone }), className)} {...props} />;
+export function Button({ tone, className, disabled, ...props }: HTMLMotionProps<"button"> & VariantProps<typeof button>) {
+  return (
+    <motion.button type="button" whileTap={disabled ? undefined : { scale: 0.96 }} transition={SPRING}
+      className={cn(button({ tone }), className)} disabled={disabled} {...props} />
+  );
 }
 
 const TONES = {
@@ -34,10 +42,16 @@ export function StatePill({ state, className }: { state: string | null | undefin
   if (!state) return null;
   const tone = stateTone(state);
   return (
-    <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium", TONES[tone], className)}>
-      {tone === "busy" && <span className="size-1.5 rounded-full bg-current animate-pulse" />}
+    <motion.span layout="position" transition={SPRING}
+      className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap", TONES[tone], className)}>
+      {tone === "busy" && (
+        <span className="relative flex size-1.5">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-current opacity-60" />
+          <span className="relative inline-flex size-1.5 rounded-full bg-current" />
+        </span>
+      )}
       {STATE_LABEL[state] ?? state}
-    </span>
+    </motion.span>
   );
 }
 
@@ -45,22 +59,89 @@ export function Kbd({ children }: { children: ReactNode }) {
   return <kbd className="rounded border border-line px-1 font-mono text-[10px] text-faint">{children}</kbd>;
 }
 
-/** The Saarathi mark: several agents converging into one direction. */
+/** Choose one of a few options; the selection slides between them. */
+export function Segmented<T extends string | number>({
+  options, value, onChange, label, className, size = "md",
+}: {
+  options: { value: T; label: ReactNode }[];
+  value: T;
+  onChange: (value: T) => void;
+  label: string;
+  className?: string;
+  size?: "sm" | "md";
+}) {
+  const id = useId();
+  return (
+    <div role="radiogroup" aria-label={label}
+      className={cn("relative flex gap-0.5 rounded-lg bg-raised p-0.5", size === "sm" ? "text-[12px]" : "text-[13px]", className)}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button key={String(o.value)} type="button" role="radio" aria-checked={active} onClick={() => onChange(o.value)}
+            className={cn("relative flex-1 rounded-md px-3 capitalize", size === "sm" ? "py-0.5" : "py-1",
+              active ? "text-ink" : "text-muted hover:text-ink")}>
+            {active && (
+              <motion.span layoutId={`seg-${id}`} transition={SPRING}
+                className="absolute inset-0 rounded-md bg-panel shadow-sm shadow-black/15 ring-1 ring-line/60" />
+            )}
+            <span className="relative">{o.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** An on/off switch. */
+export function Switch({ checked, onChange, label, disabled }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
+  return (
+    <button type="button" role="switch" aria-checked={checked} aria-label={label} disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={cn("relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-0.5 disabled:opacity-40",
+        checked ? "bg-accent" : "bg-line")}>
+      <motion.span layout transition={SPRING}
+        className={cn("size-[18px] rounded-full bg-white shadow-sm shadow-black/30", checked ? "ml-auto" : "")} />
+    </button>
+  );
+}
+
+/** A horizontal meter that animates to its value. `value` is 0–100. */
+export function Meter({ value, tone = "accent" }: { value: number; tone?: "accent" | "ok" | "warn" | "err" }) {
+  const clamped = Math.max(0, Math.min(100, value));
+  const fill = { accent: "bg-accent", ok: "bg-ok", warn: "bg-warn", err: "bg-err" }[tone];
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-raised" role="meter" aria-valuenow={clamped} aria-valuemin={0} aria-valuemax={100}>
+      <motion.div className={cn("h-full rounded-full", fill)} initial={{ width: 0 }} animate={{ width: `${clamped}%` }} transition={SOFT} />
+    </div>
+  );
+}
+
+/** Content that fades and rises into place; used for lists and page sections. */
+export function Reveal({ children, delay = 0, className }: { children: ReactNode; delay?: number; className?: string }) {
+  return (
+    <motion.div className={className} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ ...SOFT, delay }}>
+      {children}
+    </motion.div>
+  );
+}
+
+/** The Saarathi mark: several agents converging into one direction. Follows the chosen accent. */
 export function Mark({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="64 64 896 896" aria-hidden role="img">
       <rect x="64" y="64" width="896" height="896" rx="200" fill="#14171c" />
-      <g fill="#e3a94a">
+      <g style={{ fill: "var(--color-accent)" }}>
         <circle cx="300" cy="380" r="46" />
         <circle cx="300" cy="512" r="46" />
         <circle cx="300" cy="644" r="46" />
       </g>
-      <g fill="none" stroke="#e3a94a" strokeWidth="40" strokeLinecap="round" opacity="0.55">
+      <g fill="none" strokeWidth="40" strokeLinecap="round" opacity="0.55" style={{ stroke: "var(--color-accent)" }}>
         <path d="M352 380 C 480 380, 520 512, 600 512" />
         <path d="M352 644 C 480 644, 520 512, 600 512" />
         <path d="M352 512 L 600 512" />
       </g>
-      <path d="M590 392 L 770 512 L 590 632 Z" fill="#e3a94a" />
+      <path d="M590 392 L 770 512 L 590 632 Z" style={{ fill: "var(--color-accent)" }} />
     </svg>
   );
 }

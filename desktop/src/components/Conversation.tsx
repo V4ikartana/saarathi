@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleDot, GitBranch, Info, ShieldAlert, XCircle } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
@@ -6,7 +7,7 @@ import type { ConversationEntry, PlannedTask, Question, RunSnapshot } from "../l
 import { latestRun } from "../lib/types";
 import { cn, timeOf } from "../lib/ui";
 import { useApp } from "../store/app";
-import { Button } from "./primitives";
+import { Button, SOFT } from "./primitives";
 
 const LEVEL_ICON = {
   info: <CircleDot className="size-3.5 text-faint" />,
@@ -18,7 +19,7 @@ const LEVEL_ICON = {
 function UserMessage({ entry }: { entry: ConversationEntry }) {
   const text = String(entry.data.text ?? entry.title);
   return (
-    <div className="ml-auto max-w-[85%] rounded-xl border border-line bg-raised px-3.5 py-2.5">
+    <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-md bg-accent/12 px-4 py-2.5 ring-1 ring-accent/25">
       {entry.data.answers ? <div className="mb-1 text-[11px] text-faint">Answer to {String(entry.data.answers)}</div> : null}
       <div className="whitespace-pre-wrap text-[14px] leading-relaxed">{text}</div>
     </div>
@@ -70,7 +71,7 @@ function PlanCard({ entry, run }: { entry: ConversationEntry; run: RunSnapshot |
   const tasks = (entry.data.tasks ?? []) as PlannedTask[];
   const awaiting = run?.pending_approval === "plan";
   return (
-    <div className="rounded-xl border border-line bg-panel">
+    <div className="rounded-2xl border border-line bg-panel shadow-sm shadow-black/5">
       <div className="border-b border-line px-4 py-3">
         <div className="text-[11px] font-medium uppercase tracking-wide text-faint">Plan</div>
         <div className="prose-sm mt-1 text-[14px] leading-relaxed"><Markdown>{entry.title}</Markdown></div>
@@ -107,7 +108,7 @@ function QuestionsCard({ run }: { run: RunSnapshot }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   if (open.length === 0) return null;
   return (
-    <div className="rounded-xl border border-warn/40 bg-panel px-4 py-3">
+    <div className="rounded-2xl border border-warn/40 bg-panel px-4 py-3 shadow-sm shadow-black/5">
       <div className="text-[11px] font-medium uppercase tracking-wide text-warn">The lead needs answers</div>
       {open.map((q) => (
         <div key={q.id} className="mt-3">
@@ -134,7 +135,7 @@ function ReviewCard({ entry, run }: { entry: ConversationEntry; run: RunSnapshot
   const { approve, busy } = useApp();
   const concerns = (entry.data.concerns ?? []) as string[];
   return (
-    <div className="rounded-xl border border-line bg-panel px-4 py-3">
+    <div className="rounded-2xl border border-line bg-panel px-4 py-3 shadow-sm shadow-black/5">
       <div className="text-[11px] font-medium uppercase tracking-wide text-faint">{entry.title}</div>
       {entry.detail && <div className="prose-sm mt-1 text-[14px] leading-relaxed"><Markdown>{entry.detail}</Markdown></div>}
       {concerns.length > 0 && (
@@ -179,11 +180,17 @@ export function Conversation() {
       <div className="mx-auto flex max-w-3xl flex-col gap-2 px-6 py-6">
         {view.conversation.map((e) => {
           const run = e.run_id ? view.runs[e.run_id] : undefined;
-          if (e.role === "user") return <UserMessage key={e.id} entry={e} />;
-          if (e.kind === "plan") return <PlanCard key={e.id} entry={e} run={run} />;
-          if (e.kind === "review") return <ReviewCard key={e.id} entry={e} run={run} />;
-          if (e.kind === "questions") return run ? <QuestionsCard key={e.id} run={run} /> : null;
-          return <ActivityRow key={e.id} entry={e} />;
+          const body = e.role === "user" ? <UserMessage entry={e} />
+            : e.kind === "plan" ? <PlanCard entry={e} run={run} />
+            : e.kind === "review" ? <ReviewCard entry={e} run={run} />
+            : e.kind === "questions" ? (run ? <QuestionsCard run={run} /> : null)
+            : <ActivityRow entry={e} />;
+          if (!body) return null;
+          return (
+            <motion.div key={e.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={SOFT}>
+              {body}
+            </motion.div>
+          );
         })}
         {lastRun?.pending_approval === "escalation" && (
           <div className="rounded-xl border border-warn/40 bg-panel px-4 py-3 text-[13px]">

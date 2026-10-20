@@ -1,16 +1,19 @@
 import { ChartGantt, GitBranch, Users } from "lucide-react";
+import { motion } from "motion/react";
 
 import { cn } from "../lib/ui";
 
 import { latestRun } from "../lib/types";
 import { useApp } from "../store/app";
-import { StatePill } from "./primitives";
+import { SOFT, StatePill } from "./primitives";
 
 export function ExecutionPanel() {
   const { view, openTask, inspector, setCenterTab } = useApp();
   const run = latestRun(view);
   return (
-    <aside className="hidden w-80 shrink-0 flex-col overflow-y-auto border-l border-line bg-panel xl:flex">
+    <motion.aside initial={{ width: 0, opacity: 0 }} animate={{ width: 320, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
+      transition={SOFT} className="hidden shrink-0 overflow-hidden border-l border-line bg-panel lg:block">
+      <div className="flex h-full w-80 flex-col overflow-y-auto">
       <div className="border-b border-line px-4 py-3">
         <div className="text-[11px] font-medium uppercase tracking-wide text-faint">Execution</div>
         {run ? (
@@ -34,9 +37,9 @@ export function ExecutionPanel() {
           </div>
           <ul className="mt-2 space-y-2">
             {run.tasks.map((t) => (
-              <li key={t.id}>
+              <motion.li key={t.id} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={SOFT}>
                 <button type="button" onClick={() => openTask(run.run_id, t.id)}
-                  className={cn("w-full rounded-lg border px-3 py-2 text-left hover:bg-raised",
+                  className={cn("w-full rounded-xl border px-3 py-2.5 text-left hover:bg-raised hover:shadow-sm",
                     inspector?.taskId === t.id && inspector.runId === run.run_id ? "border-accent/60" : "border-line")}>
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[11px] text-faint">{t.id}</span>
@@ -52,7 +55,7 @@ export function ExecutionPanel() {
                   <div className="mt-1 text-[11px] text-warn">{t.blocked_reason ?? t.failure_reason}</div>
                 )}
                 </button>
-              </li>
+              </motion.li>
             ))}
           </ul>
         </div>
@@ -67,6 +70,7 @@ export function ExecutionPanel() {
           </ul>
         </div>
       )}
-    </aside>
+      </div>
+    </motion.aside>
   );
 }

@@ -9,6 +9,7 @@ import platform
 import shlex
 import shutil
 import sys
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -98,6 +99,8 @@ class BridgeService:
         self._projects: dict[str, Project] = {}
         self._policy_stamp: dict[str, float] = {}  # policies.yaml mtime each cached project was loaded with
         self._limits: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # project root -> (read at, limits)
+        self._limits_reading: set[str] = set()  # project roots with a background read in progress
+        self._limits_lock = threading.Lock()
         self._idempotent: dict[str, Any] = {}
 
     # ------------------------------------------------------------------ plumbing
@@ -657,19 +660,35 @@ class BridgeService:
         }
 
     def usage_limits(self, project: str, refresh: bool = False) -> dict[str, Any]:
-        """Remaining subscription usage per enabled provider, as each CLI reports it. Read in parallel and cached
-        for a minute: the CLIs take a few seconds each."""
+        """Remaining subscription usage per enabled provider, as each CLI reports it.
+
+        The CLIs take seconds each (Antigravity about ten), and the bridge answers one request at a time, so the read
+        runs on a background thread: this returns at once with the last result and ``pending: true`` while a read is
+        in progress, and clients ask again. Results are reused for a minute unless ``refresh`` is set.
+        """
         p = self.project(project)
         key = str(p.root)
-        cached = self._limits.get(key)
-        if cached and not refresh and time.monotonic() - cached[0] < LIMITS_TTL_SECONDS:
-            return {"limits": cached[1], "cached": True}
-        adapters = [a for name, a in p.registry.adapters.items() if p.policy.providers[name].enabled]
-        with ThreadPoolExecutor(max_workers=max(1, len(adapters))) as pool:
-            results = list(pool.map(lambda a: a.read_limits(), adapters))
-        limits = [r.as_dict() for r in results if r is not None]
-        self._limits[key] = (time.monotonic(), limits)
-        return {"limits": limits, "cached": False}
+        with self._limits_lock:
+            cached = self._limits.get(key)
+            fresh = cached is not None and time.monotonic() - cached[0] < LIMITS_TTL_SECONDS
+            reading = key in self._limits_reading
+            if (refresh or not fresh) and not reading:
+                adapters = [a for name, a in p.registry.adapters.items() if p.policy.providers[name].enabled]
+                self._limits_reading.add(key)
+                threading.Thread(target=self._read_limits, args=(key, adapters), daemon=True).start()
+                reading = True
+            return {"limits": cached[1] if cached else [], "pending": reading, "read_at": cached[0] if cached else None}
+
+    def _read_limits(self, key: str, adapters: list[Any]) -> None:
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, len(adapters))) as pool:
+                results = list(pool.map(lambda a: a.read_limits(), adapters))
+            limits = [r.as_dict() for r in results if r is not None]
+            with self._limits_lock:
+                self._limits[key] = (time.monotonic(), limits)
+        finally:
+            with self._limits_lock:
+                self._limits_reading.discard(key)
 
     def usage_summary(self, project: str, max_runs: int = 20) -> dict[str, Any]:
         return usage_summary(self.project(project), max_runs=max_runs)

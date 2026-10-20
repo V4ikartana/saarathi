@@ -18,7 +18,7 @@ keeps no second database and never decides eligibility itself.
 | Approvals | Plan, final review, escalation ADR changes, integration grants and selections, lessons | No **approval presets**: plan and review approval are always manual |
 | Model choice | Router with hard filters and a pinned lead | No **per-session provider or model preference or pin** |
 | Diffs | Task branches and an integration branch in worktrees; `GitRepo.diff` | No per-task diff API |
-| Usage | Per-attempt provider-reported tokens; Claude's client-side cost estimate; provider cooldowns | Subscription quotas and reset times are not available from any supported interface, so they are shown as unknown |
+| Usage | Per-attempt provider-reported tokens; Claude's client-side cost estimate; provider cooldowns | Remaining plan usage is read from each CLI's own usage command (`claude -p /usage`, Codex app-server `account/rateLimits/read`, `agy -p /usage`); no model call, no credentials |
 | Token streaming | Adapters collect each CLI's final structured result | No token-level streaming. The UI streams **events**, not model text |
 | Reasoning | None captured | Nothing to show. The UI will not invent reasoning |
 
@@ -94,7 +94,9 @@ JSON-RPC 2.0, one JSON object per line on stdout. stderr is for logs only. Every
 | `models.list {project}` / `providers.status {project}` | Catalogue, availability, cooldowns |
 | `sessions.set_preferences {session, approvals, model, model_mode}` | Store a session's preset and worker model after the policy accepts them; applied to its next runs (ADR-0014) |
 | `policy.get {project}` | Effective policy for the permission screen: preset ceiling, never-automatic list, each worker's containment and exact command line |
-| `usage.summary {project}` | Provider-reported tokens and costs per model and run, active provider limits; no quotas |
+| `usage.summary {project}` | Provider-reported tokens and costs per model and run, active provider limits |
+| `usage.limits {project, refresh}` | Remaining plan usage per provider from each CLI's usage command; read on a background thread (`pending` until done), cached a minute |
+| `models.set_enabled {candidate, enabled}` | Turn a model off or on for this person in every project (`<data dir>/settings.json`) |
 | `subscribe {project}` / `unsubscribe` | Start or stop `events/appended` notifications |
 
 Errors use JSON-RPC codes plus `data.kind`: `invalid_params`, `not_found`, `project_busy`, `invalid_state`,
@@ -157,4 +159,5 @@ only.
 3. **No token streaming.** Provider adapters return final results, so the conversation streams progress events, not
    text. Adding token streaming would change the adapters and is out of scope for v0.1.
 4. **One active run per project.** This is an engine invariant, surfaced in the UI instead of being worked around.
-5. **Subscription quotas.** No supported interface reports remaining quota or reset times, so they are shown as unknown.
+5. **Subscription quotas.** Read from each CLI's usage command, which are display commands rather than stable
+   interfaces (Codex's app-server is marked experimental). A changed format is reported as "not available", never guessed.

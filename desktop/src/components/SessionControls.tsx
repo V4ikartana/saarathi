@@ -8,7 +8,7 @@ import { useBridge } from "../lib/useBridge";
 import { useApp } from "../store/app";
 
 const SELECT =
-  "h-7 rounded-md border border-line bg-bg px-1.5 text-[12px] text-ink outline-none focus:ring-1 focus:ring-accent/50 disabled:opacity-50";
+  "h-7 rounded-lg border border-line bg-bg px-2 text-[12px] text-ink outline-none hover:border-faint/60 focus:ring-2 focus:ring-accent/30 disabled:opacity-50";
 
 export function currentPreferences(raw: Partial<SessionPreferences> | undefined): SessionPreferences {
   return { approvals: raw?.approvals ?? "ask", model: raw?.model ?? null, model_mode: raw?.model_mode ?? "prefer" };
@@ -34,7 +34,7 @@ export function SessionControls() {
       <label className="flex items-center gap-1.5" title={chosenPreset?.description}>
         <ShieldCheck className="size-3.5" />
         <span className="sr-only">Approvals</span>
-        <select aria-label="Approval preset" className={SELECT} value={prefs.approvals} disabled={busy.preferences || !presets.length}
+        <select aria-label="Approval preset" className={`${SELECT} max-w-60`} value={prefs.approvals} disabled={busy.preferences || !presets.length}
           onChange={(e) => save({ approvals: e.target.value as ApprovalPreset })}>
           {presets.map((p) => (
             <option key={p.id} value={p.id} disabled={!p.allowed}>
@@ -43,16 +43,16 @@ export function SessionControls() {
           ))}
         </select>
       </label>
-      <label className="flex items-center gap-1.5">
-        <Cpu className="size-3.5" />
+      <label className="flex min-w-0 items-center gap-1.5">
+        <Cpu className="size-3.5 shrink-0" />
         <span className="sr-only">Worker model</span>
-        <select aria-label="Worker model" className={SELECT} value={prefs.model ?? ""} disabled={busy.preferences}
+        <select aria-label="Worker model" className={`${SELECT} min-w-0 max-w-64`} value={prefs.model ?? ""} disabled={busy.preferences}
           onChange={(e) => save({ model: e.target.value || null })}>
           <option value="">Workers: chosen by the router</option>
           {workers.map((m) => (
-            <option key={m.candidate} value={m.candidate}>
+            <option key={m.candidate} value={m.candidate} disabled={m.disabled || !m.available}>
               {m.candidate} · {m.reasoning_tier}{m.source.startsWith("discovered") ? " · discovered" : ""}
-              {m.available ? "" : ` (unavailable: ${m.unavailable_reason ?? "unknown reason"})`}{m.provider_limit ? " (limited)" : ""}
+              {m.disabled ? " (turned off in Settings)" : m.available ? "" : ` (unavailable: ${m.unavailable_reason ?? "unknown reason"})`}{m.provider_limit ? " (limited)" : ""}
             </option>
           ))}
         </select>

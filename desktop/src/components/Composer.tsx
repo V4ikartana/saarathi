@@ -49,7 +49,7 @@ export function Composer() {
   };
   return (
     <div className="px-6 pb-5 pt-2">
-      <div className="mx-auto max-w-3xl rounded-xl border border-line bg-panel focus-within:border-accent/50">
+      <div className="mx-auto max-w-3xl rounded-2xl border border-line bg-panel shadow-lg shadow-black/10 focus-within:border-accent/60 focus-within:ring-4 focus-within:ring-accent/10">
         <textarea value={text} rows={3} disabled={locked}
           placeholder={locked ? "This session's run is still active. Answer, approve, stop or cancel it first." : "Describe the change you want…"}
           onChange={(e) => setText(e.target.value)}

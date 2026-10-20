@@ -22,3 +22,35 @@ describe("per-viewer settings", () => {
     expect(loadTheme()).toBe("system");
   });
 });
+
+describe("appearance", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("starts from sensible defaults and ignores tampered values", async () => {
+    const { loadAppearance, DEFAULT_APPEARANCE } = await import("./theme");
+    expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE);
+    localStorage.setItem("saarathi.appearance", JSON.stringify({ accent: "neon", scale: 7, motion: "wild", theme: "dark" }));
+    expect(loadAppearance()).toEqual({ ...DEFAULT_APPEARANCE, theme: "dark" });
+  });
+
+  it("applies the accent for the active theme and the motion preference", async () => {
+    const { applyAppearance, ACCENTS, DEFAULT_APPEARANCE, loadAppearance } = await import("./theme");
+    applyAppearance({ ...DEFAULT_APPEARANCE, theme: "light", accent: "blue", motion: "reduced" });
+    const root = document.documentElement;
+    expect(root.style.getPropertyValue("--accent")).toBe(ACCENTS.blue.light[0]);
+    expect(root.dataset.motion).toBe("reduced");
+    expect(loadAppearance().accent).toBe("blue");
+  });
+});
+
+describe("reset times", () => {
+  it("never invents a reset time", async () => {
+    const { resetsIn } = await import("./ui");
+    const now = Date.parse("2026-10-20T10:00:00Z");
+    expect(resetsIn(null, now)).toBe("");
+    expect(resetsIn("garbage", now)).toBe("");
+    expect(resetsIn("2026-10-20T10:30:00Z", now)).toBe("in 30 min");
+    expect(resetsIn("2026-10-20T14:15:00Z", now)).toBe("in 4 h 15 min");
+    expect(resetsIn("2026-10-26T10:00:00Z", now)).toBe("in 6 days");
+  });
+});

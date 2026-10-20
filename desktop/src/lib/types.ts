@@ -305,6 +305,7 @@ export interface ModelInfo {
   metered: boolean;
   source: string;
   provider_limit: string | null;
+  disabled: boolean; // turned off by this person in Settings, in every project
 }
 
 export interface PresetInfo {
@@ -323,8 +324,16 @@ export interface WorkerPolicy {
   worker_command: string | null;
 }
 
+export interface UnconfiguredCli {
+  adapter: string;
+  provider: string;
+  binary: string;
+  steps: string[];
+}
+
 export interface PolicyView {
   path: string;
+  unconfigured_clis: UnconfiguredCli[];
   mode: string;
   lead: string;
   lead_substitute: string | null;
@@ -389,4 +398,22 @@ export interface BridgeDiagnostics {
   running: boolean;
   command: string;
   stderr_tail: string[] | string;
+}
+
+export interface LimitWindow {
+  label: string;
+  used_percent: number;
+  remaining_percent: number;
+  resets_at: string | null;
+  resets_text: string | null;
+  window: string | null;
+}
+
+export interface ProviderLimits {
+  adapter: string;
+  source: string;
+  plan: string | null;
+  error: string | null;
+  checked_at: string;
+  windows: LimitWindow[];
 }

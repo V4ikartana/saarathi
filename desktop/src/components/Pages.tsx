@@ -1,47 +1,57 @@
 // Project-level pages. Usage and permissions are read-only views of engine records and the policy file; settings
 // changes only per-viewer conveniences (theme, defaults for new sessions). The policy itself is edited in its file.
-import { CheckCircle2, CircleAlert, RefreshCw, XCircle } from "lucide-react";
+import { CheckCircle2, CircleAlert, Gauge, RefreshCw, TriangleAlert, XCircle } from "lucide-react";
+import { motion } from "motion/react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { call } from "../lib/bridge";
-import { loadDefaultPreferences, saveDefaultPreferences, type Theme } from "../lib/theme";
+import { type Accent, ACCENTS, loadDefaultPreferences, type Motion, saveDefaultPreferences, type Scale, type Theme } from "../lib/theme";
 import type {
   ApprovalPreset,
   BridgeDiagnostics,
   DoctorReport,
+  ModelInfo,
   PolicyView,
+  ProviderLimits,
   SessionPreferences,
   UsageRow,
   UsageSummary,
 } from "../lib/types";
-import { cn, fmtDuration, fmtTokens, timeOf } from "../lib/ui";
+import { cn, fmtDuration, fmtTokens, resetsIn, timeOf } from "../lib/ui";
 import { useBridge, type Query } from "../lib/useBridge";
 import { useApp } from "../store/app";
-import { Button, StatePill } from "./primitives";
+import { Button, Meter, Reveal, Segmented, StatePill, Switch } from "./primitives";
 
 function PageShell({ title, subtitle, actions, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-4xl px-6 py-6">
-        <div className="flex items-start gap-4">
+      <div className="mx-auto max-w-4xl px-8 py-8">
+        <Reveal className="flex items-start gap-4">
           <div className="min-w-0 flex-1">
-            <h1 className="text-[18px] font-semibold">{title}</h1>
-            {subtitle && <p className="mt-1 text-[13px] text-muted">{subtitle}</p>}
+            <h1 className="text-[26px] font-bold tracking-tight">{title}</h1>
+            {subtitle && <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-muted">{subtitle}</p>}
           </div>
           {actions}
-        </div>
-        <div className="mt-6 space-y-6">{children}</div>
+        </Reveal>
+        <div className="mt-8 space-y-6">{children}</div>
       </div>
     </div>
   );
 }
 
-function Card({ title, children, className }: { title?: string; children: ReactNode; className?: string }) {
+function Card({ title, children, className, actions, delay = 0 }: { title?: string; children: ReactNode; className?: string; actions?: ReactNode; delay?: number }) {
   return (
-    <section className={cn("rounded-xl border border-line bg-panel", className)}>
-      {title && <h2 className="border-b border-line px-4 py-2.5 text-[11px] font-medium uppercase tracking-wide text-faint">{title}</h2>}
-      <div className="px-4 py-3">{children}</div>
-    </section>
+    <Reveal delay={delay}>
+      <section className={cn("rounded-2xl border border-line bg-panel shadow-sm shadow-black/5", className)}>
+        {title && (
+          <div className="flex items-center gap-3 border-b border-line px-5 py-3">
+            <h2 className="flex-1 text-[13px] font-semibold">{title}</h2>
+            {actions}
+          </div>
+        )}
+        <div className="px-5 py-4">{children}</div>
+      </section>
+    </Reveal>
   );
 }
 
@@ -71,15 +81,86 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
   );
 }
 
+const TONE_TEXT = { ok: "text-ok", warn: "text-warn", err: "text-err" } as const;
+
+function limitTone(remaining: number): "ok" | "warn" | "err" {
+  return remaining <= 10 ? "err" : remaining <= 30 ? "warn" : "ok";
+}
+
+/** Remaining plan usage, read from each provider CLI's own usage command. */
+function PlanLimits() {
+  const project = useApp((s) => s.project);
+  const [state, setState] = useState<{ limits?: ProviderLimits[]; error?: string; loading: boolean }>({ loading: true });
+  const [tick, setTick] = useState(0);
+  const load = async (refresh: boolean) => {
+    if (!project) return;
+    setState((s) => ({ ...s, loading: true, error: undefined }));
+    try {
+      const r = await call<{ limits: ProviderLimits[]; pending: boolean }>("usage.limits", { project: project.root, refresh });
+      setState({ limits: r.limits.length || !r.pending ? r.limits : undefined, loading: r.pending });
+      if (r.pending) window.setTimeout(() => setTick((t) => t + 1), 1500); // the bridge reads in the background
+    } catch (err) {
+      setState((s) => ({ ...s, loading: false, error: err instanceof Error ? err.message : String(err) }));
+    }
+  };
+  useEffect(() => {
+    void load(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.root, tick]);
+  return (
+    <Card title="Plan limits" actions={
+      <Button tone="ghost" disabled={state.loading} onClick={() => void load(true)}>
+        <RefreshCw className={cn("size-3.5", state.loading && "animate-spin")} />{state.loading ? "Reading…" : "Refresh"}
+      </Button>
+    }>
+      {state.error && <p className="text-[13px] text-err">{state.error}</p>}
+      {!state.limits && !state.error && <p className="text-[13px] text-faint">Asking each provider CLI… (Antigravity takes about 10 seconds)</p>}
+      <div className="grid gap-5 md:grid-cols-2">
+        {(state.limits ?? []).map((p, i) => (
+          <Reveal key={p.adapter} delay={i * 0.05}>
+            <div className="rounded-xl bg-raised/50 px-4 py-3">
+              <div className="flex items-center gap-2 text-[13px]">
+                <Gauge className="size-4 text-muted" />
+                <Mono>{p.adapter}</Mono>
+                {p.plan && <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium capitalize text-accent">{p.plan}</span>}
+              </div>
+              {p.error ? (
+                <p className="mt-2 flex gap-1.5 text-[12px] text-warn"><TriangleAlert className="mt-0.5 size-3.5 shrink-0" />Not available: {p.error}</p>
+              ) : (
+                <ul className="mt-3 space-y-3">
+                  {p.windows.map((w) => (
+                    <li key={w.label}>
+                      <div className="mb-1.5 flex items-baseline gap-2 text-[12px]">
+                        <span className="min-w-0 flex-1 truncate">{w.label}</span>
+                        <span className={cn("font-semibold tabular-nums", TONE_TEXT[limitTone(w.remaining_percent)])}>{Math.round(w.remaining_percent)}% left</span>
+                      </div>
+                      <Meter value={w.remaining_percent} tone={limitTone(w.remaining_percent)} />
+                      <div className="mt-1 text-[11px] text-faint">
+                        resets {w.resets_at ? `${resetsIn(w.resets_at)} · ${new Date(w.resets_at).toLocaleString()}` : (w.resets_text ?? "time not reported")}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-3 text-[11px] text-faint">via <span className="font-mono">{p.source}</span></div>
+            </div>
+          </Reveal>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 export function UsagePage() {
   const project = useApp((s) => s.project);
   const usage = useBridge<UsageSummary>("usage.summary", project ? { project: project.root } : null);
   return (
-    <PageShell title="Usage" subtitle="Token counts and costs exactly as each provider reported them, for this project's runs.">
+    <PageShell title="Usage" subtitle="How much of each plan is left, and the tokens and costs each provider reported for this project's runs.">
+      <PlanLimits />
       <Loaded query={usage}>
         {(u) => (
           <>
-            <div className="flex items-start gap-3 rounded-lg border border-line bg-raised/50 px-4 py-3 text-[13px] text-muted">
+            <div className="flex items-start gap-3 rounded-xl border border-line bg-raised/40 px-4 py-3 text-[13px] text-muted">
               <CircleAlert className="mt-0.5 size-4 shrink-0" />
               <span>{u.quota_note} Costs, where shown, are what the provider or adapter recorded; "≈" marks client-side estimates.</span>
             </div>
@@ -245,8 +326,133 @@ export function PermissionsPage() {
 
 // ---------------------------------------------------------------- settings
 
+
+function ModelsPanel({ root }: { root: string }) {
+  const models = useBridge<ModelInfo[]>("models.list", root ? { project: root } : null, { live: false });
+  const policy = useBridge<PolicyView>("policy.get", root ? { project: root } : null, { live: false });
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<string | null>(null);
+  const toggle = async (candidate: string, enabled: boolean) => {
+    setOverrides((o) => ({ ...o, [candidate]: !enabled }));
+    setError(null);
+    try {
+      await call("models.set_enabled", { candidate, enabled });
+    } catch (err) {
+      setOverrides((o) => ({ ...o, [candidate]: enabled }));
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+  const groups = new Map<string, ModelInfo[]>();
+  for (const m of models.data ?? []) groups.set(m.adapter, [...(groups.get(m.adapter) ?? []), m]);
+  return (
+    <Card title="Models" delay={0.04}>
+      <p className="text-[13px] text-muted">
+        Turn a model off and Saarathi never uses it, in any project: the router skips it, sessions cannot prefer or pin it,
+        and it cannot lead. Tiers come from your policy, the provider, or Saarathi's model catalogue.
+      </p>
+      {error && <p className="mt-2 text-[13px] text-err">{error}</p>}
+      {(policy.data?.unconfigured_clis ?? []).map((c) => (
+        <div key={c.adapter} className="mt-3 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-[13px]">
+          <div className="font-medium">{c.adapter} is installed but this project's policy does not include it.</div>
+          <ul className="mt-1 list-disc pl-5 text-[12px] text-muted">{c.steps.map((step) => <li key={step}>{step}</li>)}</ul>
+          <div className="mt-1 text-[12px] text-faint">Edit <span className="font-mono">{policy.data?.path}</span>; changes apply on the next request.</div>
+        </div>
+      ))}
+      {!models.data && <p className="mt-3 text-[13px] text-faint">{models.error?.message ?? "Loading…"}</p>}
+      <div className="mt-4 space-y-5">
+        {[...groups.entries()].map(([adapter, list]) => (
+          <div key={adapter}>
+            <div className="mb-1.5 flex items-center gap-2 text-[12px] font-semibold uppercase tracking-wide text-faint">
+              {adapter}<span className="font-normal normal-case tracking-normal">· {list[0]?.provider}</span>
+            </div>
+            <ul className="divide-y divide-line/60 rounded-xl border border-line">
+              {list.map((m) => {
+                const off = overrides[m.candidate] ?? m.disabled;
+                return (
+                  <motion.li key={m.candidate} layout className="flex items-center gap-3 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className={cn("flex items-center gap-2 text-[13px]", off && "text-faint line-through decoration-faint/60")}>
+                        <Mono>{m.model}</Mono>
+                        <TierPill tier={m.reasoning_tier} />
+                        {m.source.startsWith("discovered") && <span className="text-[11px] text-faint">discovered</span>}
+                      </div>
+                      {!off && !m.available && m.unavailable_reason && (
+                        <div className="mt-0.5 text-[11px] text-warn">{m.unavailable_reason}</div>
+                      )}
+                    </div>
+                    <Switch label={`Use ${m.candidate}`} checked={!off} onChange={(on) => void toggle(m.candidate, on)} />
+                  </motion.li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+const TIER_STYLE: Record<string, string> = {
+  frontier: "bg-accent/15 text-accent",
+  balanced: "bg-ok/15 text-ok",
+  economy: "bg-raised text-muted",
+  unknown: "bg-raised text-faint",
+};
+
+function TierPill({ tier }: { tier: string }) {
+  return <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", TIER_STYLE[tier] ?? TIER_STYLE.unknown)}>{tier}</span>;
+}
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 py-2.5">
+      <div className="min-w-48 flex-1">
+        <div className="text-[13px] font-medium">{label}</div>
+        {hint && <div className="text-[12px] text-faint">{hint}</div>}
+      </div>
+      <div className="min-w-64">{children}</div>
+    </div>
+  );
+}
+
+function AppearancePanel() {
+  const { appearance, setAppearance } = useApp();
+  return (
+    <Card title="Appearance">
+      <div className="divide-y divide-line/60">
+        <Row label="Theme" hint="System follows macOS light and dark mode.">
+          <Segmented label="Theme" value={appearance.theme} onChange={(theme: Theme) => setAppearance({ theme })}
+            options={[{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} />
+        </Row>
+        <Row label="Accent colour">
+          <div className="flex gap-2.5" role="radiogroup" aria-label="Accent colour">
+            {(Object.keys(ACCENTS) as Accent[]).map((a) => (
+              <motion.button key={a} type="button" role="radio" aria-checked={appearance.accent === a} aria-label={ACCENTS[a].label}
+                title={ACCENTS[a].label} whileTap={{ scale: 0.85 }} whileHover={{ scale: 1.1 }}
+                onClick={() => setAppearance({ accent: a })}
+                className={cn("size-7 rounded-full ring-offset-2 ring-offset-panel", appearance.accent === a && "ring-2 ring-ink")}
+                style={{ background: ACCENTS[a].dark[0] }} />
+            ))}
+          </div>
+        </Row>
+        <Row label="Interface size" hint="Scales text and spacing everywhere.">
+          <Segmented label="Interface size" value={appearance.scale} onChange={(scale: Scale) => setAppearance({ scale })}
+            options={[{ value: 0.9, label: "Small" }, { value: 1, label: "Default" }, { value: 1.1, label: "Large" }, { value: 1.2, label: "Larger" }]} />
+        </Row>
+        <Row label="Motion" hint="Reduced turns off animations; System follows macOS accessibility settings.">
+          <Segmented label="Motion" value={appearance.motion} onChange={(motion: Motion) => setAppearance({ motion })}
+            options={[{ value: "system", label: "System" }, { value: "full", label: "Full" }, { value: "reduced", label: "Reduced" }]} />
+        </Row>
+        <Row label="Execution panel" hint="The run and task list beside each session.">
+          <Switch label="Show the execution panel" checked={appearance.showExecution} onChange={(showExecution) => setAppearance({ showExecution })} />
+        </Row>
+      </div>
+    </Card>
+  );
+}
+
 export function SettingsPage() {
-  const { project, bridge, theme, setTheme } = useApp();
+  const { project, bridge } = useApp();
   const root = project?.root ?? "";
   const policy = useBridge<PolicyView>("policy.get", root ? { project: root } : null, { live: false });
   const [doctor, setDoctor] = useState<{ data?: DoctorReport; error?: string; loading: boolean }>({ loading: false });
@@ -274,52 +480,45 @@ export function SettingsPage() {
   };
 
   return (
-    <PageShell title="Settings" subtitle="Preferences for this app on this computer. Project rules live in the policy file (see Permissions).">
-      <Card title="Appearance">
-        <div className="flex gap-1 rounded-md bg-raised p-0.5 text-[13px]" role="radiogroup" aria-label="Theme">
-          {(["system", "light", "dark"] as Theme[]).map((t) => (
-            <button key={t} type="button" role="radio" aria-checked={theme === t} onClick={() => setTheme(t)}
-              className={cn("flex-1 rounded px-3 py-1 capitalize", theme === t ? "bg-panel text-ink shadow-sm" : "text-muted hover:text-ink")}>{t}</button>
-          ))}
-        </div>
-      </Card>
-      <Card title="Defaults for new sessions">
-        <label className="flex items-center gap-3 text-[13px]">
-          <span className="w-32 text-muted">Approvals</span>
-          <select className="h-8 rounded-md border border-line bg-bg px-2 text-[13px]" value={defaults.approvals}
+    <PageShell title="Settings" subtitle="Make Saarathi yours. Appearance and defaults stay on this computer; turned-off models apply to every project. Project rules live in the policy file (see Permissions).">
+      <AppearancePanel />
+      <ModelsPanel root={root} />
+      <Card title="Defaults for new sessions" delay={0.08}>
+        <Row label="Approvals" hint={'If a project’s policy refuses the default, the session keeps "Ask before actions".'}>
+          <select className="h-8 w-full rounded-lg border border-line bg-bg px-2 text-[13px]" value={defaults.approvals}
             onChange={(e) => updateDefaults({ approvals: e.target.value as ApprovalPreset })}>
             {(policy.data?.approvals.presets ?? []).map((x) => (
               <option key={x.id} value={x.id} disabled={!x.allowed}>{x.label}{x.allowed ? "" : " (not allowed in this project)"}</option>
             ))}
           </select>
-        </label>
-        <p className="mt-2 text-[12px] text-faint">The engine checks the default against each project's policy when a session is created; a session keeps "Ask before actions" if the policy refuses it.</p>
+        </Row>
       </Card>
-      <Card title="Providers">
-        <div className="flex items-center gap-3">
-          <p className="flex-1 text-[13px] text-muted">Check each provider CLI: installed, version, sign-in method and whether it is metered. Nothing is sent to a model.</p>
-          <Button disabled={!root || doctor.loading} onClick={() => void runDoctor()}><RefreshCw className={cn("size-3.5", doctor.loading && "animate-spin")} />Check providers</Button>
-        </div>
+      <Card title="Providers" delay={0.12} actions={
+        <Button disabled={!root || doctor.loading} onClick={() => void runDoctor()}><RefreshCw className={cn("size-3.5", doctor.loading && "animate-spin")} />Check providers</Button>
+      }>
+        <p className="text-[13px] text-muted">Checks each provider CLI: installed, version, sign-in method and whether it is metered. Nothing is sent to a model.</p>
         {doctor.error && <p className="mt-2 text-[13px] text-err">{doctor.error}</p>}
         {doctor.data && (
           <ul className="mt-3 space-y-3">
-            {doctor.data.adapters.map((a) => (
-              <li key={a.name} className="rounded-lg border border-line px-3 py-2">
-                <div className="flex items-center gap-2 text-[13px]">
-                  {a.available ? <CheckCircle2 className="size-4 text-ok" /> : <XCircle className="size-4 text-err" />}
-                  <Mono>{a.name}</Mono><span className="text-faint">{a.provider}</span>
-                  {a.test_only && <span className="rounded bg-raised px-1.5 text-[11px] text-faint">test only</span>}
-                  <span className="ml-auto text-[12px] text-muted">{a.version ?? ""}{a.auth_method ? ` · ${a.auth_method}` : ""}{a.metered === true ? " · metered (blocked)" : ""}</span>
-                </div>
-                {a.reason && <p className="mt-1 text-[12px] text-warn">{a.reason}</p>}
-                {a.notices.map((n) => <p key={n} className="mt-1 text-[12px] text-muted">{n}</p>)}
-              </li>
+            {doctor.data.adapters.map((a, i) => (
+              <Reveal key={a.name} delay={i * 0.04}>
+                <li className="rounded-xl border border-line px-3 py-2">
+                  <div className="flex items-center gap-2 text-[13px]">
+                    {a.available ? <CheckCircle2 className="size-4 text-ok" /> : <XCircle className="size-4 text-err" />}
+                    <Mono>{a.name}</Mono><span className="text-faint">{a.provider}</span>
+                    {a.test_only && <span className="rounded bg-raised px-1.5 text-[11px] text-faint">test only</span>}
+                    <span className="ml-auto text-[12px] text-muted">{a.version ?? ""}{a.auth_method ? ` · ${a.auth_method}` : ""}{a.metered === true ? " · metered (blocked)" : ""}</span>
+                  </div>
+                  {a.reason && <p className="mt-1 text-[12px] text-warn">{a.reason}</p>}
+                  {a.notices.map((n) => <p key={n} className="mt-1 text-[12px] text-muted">{n}</p>)}
+                </li>
+              </Reveal>
             ))}
             <li className="text-[12px] text-muted">Lead: {doctor.data.lead ? <Mono>{doctor.data.lead}</Mono> : <span className="text-err">unavailable: {doctor.data.lead_problems.join("; ")}</span>}</li>
           </ul>
         )}
       </Card>
-      <Card title="Engine">
+      <Card title="Engine" delay={0.16}>
         <dl className="space-y-1 text-[12px]">
           <div><dt className="inline text-faint">Saarathi: </dt><dd className="inline">{bridge ? `${bridge.saarathi_version} (protocol ${bridge.protocol}, Python ${bridge.python})` : "not connected"}</dd></div>
           <div><dt className="inline text-faint">Data directory: </dt><dd className="inline"><Mono>{bridge?.data_dir ?? "—"}</Mono></dd></div>

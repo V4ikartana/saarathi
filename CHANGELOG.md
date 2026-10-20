@@ -73,7 +73,7 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   --approvals --prefer-model --pin-model` and `saarathi usage`. Lead calls record `lead.usage` events.
 - Desktop M4: per-session approval preset and worker model controls, a permissions page (policy ceiling, what is never
   automatic, each worker's containment and its exact command line), a usage page (provider-reported tokens and costs
-  per model and run, active provider limits, no invented quotas) and settings (theme, defaults for new sessions,
+  per model and run, active provider limits) and settings (theme, defaults for new sessions,
   provider check, engine details). New bridge methods: `sessions.set_preferences`, `policy.get`, `usage.summary`. The
   bridge reloads a project's policy when `policies.yaml` changes.
 - Live check of the desktop app with Claude Code and Codex CLI (`docs/phase0/evidence/live-desktop-claude-codex.md`).
@@ -88,6 +88,17 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   it. The Claude output parser now finds the result object even if text is printed after it. With known tiers the
   router can choose discovered models on its own, within `routing.allowed_models`; restrict them with
   `routing.denied_models` or turn discovery off per adapter with `options.discover_models: false`.
+- Remaining plan usage from each CLI: `claude -p /usage`, Codex's app-server `account/rateLimits/read` and
+  `agy -p /usage` (no model call, no credentials read, account ids dropped). Shown as meters on the Usage page and by
+  `saarathi limits`; the bridge reads them on a background thread. This corrects the earlier statement that no
+  supported interface reports quotas.
+- Turn models off: `saarathi models disable/enable` and a Models panel in Settings. A turned-off model is never
+  routed to, preferred, pinned or used as lead, in any project. Installed CLIs a project's policy leaves out are flagged
+  with the steps to add them.
+- Desktop design refresh: higher-contrast light and dark themes, the system font, frosted sidebar and headers, and
+  spring animations (page and tab transitions, the inspector sliding in, sliding selection indicators, animated
+  meters). Settings → Appearance adds theme, six accent colours, interface size, motion (system, full, reduced) and the
+  execution panel toggle.
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now

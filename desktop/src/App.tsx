@@ -1,5 +1,6 @@
-import { X } from "lucide-react";
-import { useEffect } from "react";
+import { PanelRight, X } from "lucide-react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
+import { useEffect, type ReactNode } from "react";
 
 import { Composer, RunBar } from "./components/Composer";
 import { Conversation } from "./components/Conversation";
@@ -7,28 +8,45 @@ import { ExecutionPanel } from "./components/ExecutionPanel";
 import { PermissionsPage, SettingsPage, UsagePage } from "./components/Pages";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RunTimeline } from "./components/RunTimeline";
+import { Segmented, SOFT } from "./components/primitives";
 import { Sidebar } from "./components/Sidebar";
 import { TaskInspector } from "./components/TaskInspector";
 import { onBridgeStatus, onEvents } from "./lib/bridge";
-import { cn } from "./lib/ui";
+import { prefersReducedMotion } from "./lib/theme";
 import { useApp } from "./store/app";
 
 function NoticeBar() {
   const { notice, dismissNotice } = useApp();
-  if (!notice) return null;
   return (
-    <div role="alert" className="flex items-start gap-3 border-b border-err/30 bg-err/10 px-4 py-2 text-[13px]">
-      <div className="min-w-0 flex-1">
-        <span className="text-err">{notice.message}</span>
-        {notice.hint && <span className="ml-2 text-muted">{notice.hint}</span>}
-      </div>
-      <button type="button" aria-label="Dismiss" onClick={dismissNotice} className="text-muted hover:text-ink"><X className="size-4" /></button>
-    </div>
+    <AnimatePresence initial={false}>
+      {notice && (
+        <motion.div key="notice" role="alert" initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0 }} transition={SOFT} className="overflow-hidden border-b border-err/30 bg-err/10">
+          <div className="flex items-start gap-3 px-4 py-2 text-[13px]">
+            <div className="min-w-0 flex-1">
+              <span className="text-err">{notice.message}</span>
+              {notice.hint && <span className="ml-2 text-muted">{notice.hint}</span>}
+            </div>
+            <button type="button" aria-label="Dismiss" onClick={dismissNotice} className="text-muted hover:text-ink"><X className="size-4" /></button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/** Each view fades and rises into place; switching away fades it out first. */
+function View({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <motion.div data-view={id} className="flex min-h-0 flex-1 flex-col" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -6 }} transition={SOFT}>
+      {children}
+    </motion.div>
   );
 }
 
 export default function App() {
-  const { project, bridgeState, connect, view, activeSessionId, centerTab, setCenterTab, page } = useApp();
+  const { project, bridgeState, connect, view, activeSessionId, centerTab, setCenterTab, page, appearance, setAppearance } = useApp();
 
   useEffect(() => {
     void connect();
@@ -62,53 +80,68 @@ export default function App() {
     };
   }, [connect]);
 
+  const viewId = page !== "session" ? page : `${activeSessionId ?? "none"}:${centerTab}`;
   return (
-    <div className="flex h-full flex-col">
-      <NoticeBar />
-      {!project?.initialized ? (
-        <div className="flex-1"><ProjectPicker /></div>
-      ) : (
-        <div className="relative flex min-h-0 flex-1">
-          <Sidebar />
-          <main className="flex min-w-0 flex-1 flex-col">
-            <header className="flex h-11 items-center gap-3 border-b border-line px-5 text-[13px]">
-              <span className="min-w-0 truncate font-medium">
-                {page !== "session" ? project.name : (view?.session.title ?? (activeSessionId ? "" : "Select or create a session"))}
-              </span>
-              {activeSessionId && page === "session" && (
-                <nav className="ml-2 flex gap-0.5 rounded-md bg-raised p-0.5 text-[12px]" aria-label="View">
-                  {(["conversation", "timeline"] as const).map((tab) => (
-                    <button key={tab} type="button" onClick={() => setCenterTab(tab)}
-                      className={cn("rounded px-2 py-0.5 capitalize", centerTab === tab ? "bg-panel text-ink shadow-sm" : "text-muted hover:text-ink")}>
-                      {tab}
-                    </button>
-                  ))}
-                </nav>
-              )}
-              {bridgeState !== "ready" && <span className="ml-auto text-[12px] text-warn">Reconnecting to the engine…</span>}
-            </header>
-            {page === "usage" ? <UsagePage />
-              : page === "permissions" ? <PermissionsPage />
-              : page === "settings" ? <SettingsPage />
-              : !activeSessionId ? (
-              <div className="grid flex-1 place-items-center text-[13px] text-faint">Create a session to start.</div>
-            ) : centerTab === "timeline" ? (
-              <>
-                <RunTimeline />
-                <RunBar />
-              </>
-            ) : (
-              <>
-                <Conversation />
-                <RunBar />
-                <Composer />
-              </>
-            )}
-          </main>
-          {page === "session" && <ExecutionPanel />}
-          <TaskInspector />
-        </div>
-      )}
-    </div>
+    <MotionConfig reducedMotion={prefersReducedMotion(appearance.motion) ? "always" : "never"} transition={SOFT}>
+      <div className="flex h-full flex-col">
+        <NoticeBar />
+        <AnimatePresence mode="wait" initial={false}>
+          {!project?.initialized ? (
+            <View key="picker" id="picker"><ProjectPicker /></View>
+          ) : (
+            <motion.div key="workspace" className="relative flex min-h-0 flex-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <Sidebar />
+              <main className="flex min-w-0 flex-1 flex-col">
+                <header className="glass sticky top-0 z-10 flex h-12 items-center gap-3 border-b border-line/70 px-5 text-[13px]">
+                  <span className="min-w-0 truncate text-[14px] font-semibold">
+                    {page !== "session" ? <span className="font-medium text-muted">{project.name}</span>
+                      : (view?.session.title ?? (activeSessionId ? "" : "Select or create a session"))}
+                  </span>
+                  {activeSessionId && page === "session" && (
+                    <Segmented size="sm" label="View" className="ml-2 w-52" value={centerTab} onChange={setCenterTab}
+                      options={[{ value: "conversation", label: "Conversation" }, { value: "timeline", label: "Timeline" }]} />
+                  )}
+                  <span className="ml-auto flex items-center gap-3">
+                    {bridgeState !== "ready" && <span className="text-[12px] text-warn">Reconnecting to the engine…</span>}
+                    {page === "session" && (
+                      <button type="button" aria-pressed={appearance.showExecution} title="Show or hide the execution panel"
+                        onClick={() => setAppearance({ showExecution: !appearance.showExecution })}
+                        className="rounded-md p-1.5 text-muted hover:bg-raised hover:text-ink aria-pressed:text-ink">
+                        <PanelRight className="size-4" />
+                      </button>
+                    )}
+                  </span>
+                </header>
+                <AnimatePresence mode="wait" initial={false}>
+                  <View key={viewId} id={viewId}>
+                    {page === "usage" ? <UsagePage />
+                      : page === "permissions" ? <PermissionsPage />
+                      : page === "settings" ? <SettingsPage />
+                      : !activeSessionId ? (
+                        <div className="grid flex-1 place-items-center text-[13px] text-faint">Create a session to start.</div>
+                      ) : centerTab === "timeline" ? (
+                        <>
+                          <RunTimeline />
+                          <RunBar />
+                        </>
+                      ) : (
+                        <>
+                          <Conversation />
+                          <RunBar />
+                          <Composer />
+                        </>
+                      )}
+                  </View>
+                </AnimatePresence>
+              </main>
+              <AnimatePresence initial={false}>
+                {page === "session" && appearance.showExecution && <ExecutionPanel key="execution" />}
+              </AnimatePresence>
+              <TaskInspector />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </MotionConfig>
   );
 }

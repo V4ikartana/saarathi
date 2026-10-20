@@ -62,3 +62,15 @@ export const OUTCOME_TONE: Record<string, "ok" | "warn" | "err" | "busy" | "idle
   cancelled: "warn",
   orphaned: "warn",
 };
+
+/** "in 4 h 12 min", "in 3 days" or "" for a reset time; never invents one. */
+export function resetsIn(iso: string | null, now = Date.now()): string {
+  if (!iso) return "";
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return "";
+  const minutes = Math.max(0, Math.round((at - now) / 60_000));
+  if (minutes < 60) return `in ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `in ${hours} h ${minutes % 60} min`;
+  return `in ${Math.round(hours / 24)} days`;
+}

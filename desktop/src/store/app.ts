@@ -2,7 +2,7 @@
 import { create } from "zustand";
 
 import { BridgeError, call, idempotencyKey } from "../lib/bridge";
-import { applyTheme, loadDefaultPreferences, loadTheme, type Theme } from "../lib/theme";
+import { type Appearance, applyAppearance, loadAppearance, loadDefaultPreferences } from "../lib/theme";
 import type { BridgeInfo, ProjectInfo, SessionPreferences, SessionSummary, SessionView } from "../lib/types";
 
 const RECENT_KEY = "saarathi.recentProjects";
@@ -57,7 +57,7 @@ interface AppState {
   centerTab: "conversation" | "timeline";
   inspector: Inspector | null;
   page: Page;
-  theme: Theme;
+  appearance: Appearance;
 
   connect: () => Promise<void>;
   openProject: (path: string) => Promise<void>;
@@ -84,7 +84,7 @@ interface AppState {
   setInspectorTab: (tab: InspectorTab) => void;
   closeInspector: () => void;
   setPage: (page: Page) => void;
-  setTheme: (theme: Theme) => void;
+  setAppearance: (change: Partial<Appearance>) => void;
   setPreferences: (prefs: SessionPreferences) => Promise<boolean>;
 }
 
@@ -121,7 +121,7 @@ export const useApp = create<AppState>((set, get) => {
     centerTab: "conversation",
     inspector: null,
     page: "session",
-    theme: loadTheme(),
+    appearance: loadAppearance(),
 
     connect: async () => {
       const info = await act("connect", () => call<BridgeInfo>("system.initialize", { client: "saarathi-desktop", protocol: 1 }));
@@ -270,9 +270,10 @@ export const useApp = create<AppState>((set, get) => {
     setInspectorTab: (tab) => set((s) => (s.inspector ? { inspector: { ...s.inspector, tab } } : {})),
     closeInspector: () => set({ inspector: null }),
     setPage: (page) => set({ page, inspector: null }),
-    setTheme: (theme) => {
-      applyTheme(theme);
-      set({ theme });
+    setAppearance: (change) => {
+      const appearance = { ...get().appearance, ...change };
+      applyAppearance(appearance);
+      set({ appearance });
     },
     setPreferences: async (prefs) => {
       const id = get().activeSessionId;

@@ -1,5 +1,6 @@
 // Everything the engine recorded about one task. Read-only: the inspector shows records, it never changes them.
 import { ChevronRight, Columns2, FileCode2, Rows2, ScrollText, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 
 import type {
@@ -15,7 +16,7 @@ import type {
 import { cn, durationMs, fmtDuration, fmtTokens, OUTCOME_TONE, shortSha, timeOf } from "../lib/ui";
 import { useBridge } from "../lib/useBridge";
 import { type InspectorTab, useApp } from "../store/app";
-import { StatePill } from "./primitives";
+import { SOFT, SPRING, StatePill } from "./primitives";
 
 const DiffView = lazy(() => import("./DiffView"));
 const LogView = lazy(() => import("./LogView"));
@@ -142,7 +143,7 @@ function AttemptCard({ a }: { a: Attempt }) {
   const r = a.result;
   const usage = r?.usage;
   return (
-    <div className="rounded-xl border border-line bg-panel">
+    <div className="rounded-2xl border border-line bg-panel shadow-sm shadow-black/5">
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-2.5">
         <span className="text-[13px] font-medium">Attempt {a.number}</span>
         <OutcomePill attempt={a} />
@@ -219,7 +220,7 @@ function Attempts({ data }: { data: TaskInspection }) {
 function Decision({ d, attempt }: { d: RoutingDecision; attempt: Attempt | undefined }) {
   const scores = Object.entries(d.score_breakdown);
   return (
-    <div className="rounded-xl border border-line bg-panel px-4 py-3 text-[13px]">
+    <div className="rounded-2xl border border-line bg-panel px-4 py-3 text-[13px] shadow-sm shadow-black/5">
       <div className="flex flex-wrap items-center gap-2">
         {d.chosen ? <Mono className="text-accent">{d.chosen}</Mono> : <span className="text-warn">No candidate chosen</span>}
         {attempt && <span className="text-[11px] text-faint">used by attempt {attempt.number}</span>}
@@ -387,38 +388,53 @@ export function TaskInspector() {
     return () => window.removeEventListener("keydown", onKey);
   }, [closeInspector]);
 
-  if (!inspector) return null;
-  const { runId, taskId, tab } = inspector;
+  const key = inspector ? `${inspector.runId}:${inspector.taskId}` : null;
+  const tab = inspector?.tab ?? "overview";
   const t = data.data?.task;
   const fullHeight = tab === "changes" || tab === "logs";
   return (
-    <div role="dialog" aria-label={`Task ${taskId}`}
-      className="absolute inset-y-0 right-0 z-20 flex w-[min(920px,72vw)] flex-col border-l border-line bg-bg shadow-2xl shadow-black/40">
-      <header className="flex items-center gap-2 border-b border-line px-5 py-3">
-        <Mono className="text-faint">{taskId}</Mono>
-        <span className="min-w-0 flex-1 truncate text-[14px] font-medium">{t?.title ?? ""}</span>
-        {t && <StatePill state={t.state} />}
-        <button type="button" aria-label="Close inspector" onClick={closeInspector} className="rounded p-1 text-muted hover:bg-raised hover:text-ink">
-          <X className="size-4" />
-        </button>
-      </header>
-      <nav className="flex gap-1 border-b border-line px-4">
-        {TABS.map(({ id, label }) => (
-          <button key={id} type="button" onClick={() => setInspectorTab(id)}
-            className={cn("-mb-px border-b-2 px-2.5 py-2 text-[13px]", tab === id ? "border-accent text-ink" : "border-transparent text-muted hover:text-ink")}>
-            {label}
-            {id === "attempts" && t ? <span className="ml-1 text-faint">{t.attempts}</span> : null}
-          </button>
-        ))}
-      </nav>
-      <div className={cn("min-h-0 flex-1", fullHeight ? "overflow-hidden" : "overflow-y-auto")}>
-        {tab === "changes" ? <Changes project={root} runId={runId} taskId={taskId} accepted={t?.state === "SUCCEEDED"} />
-          : tab === "logs" ? <Logs project={root} runId={runId} taskId={taskId} />
-          : !data.data ? (data.error ? <Empty>{data.error.message}</Empty> : <Loading />)
-          : tab === "overview" ? <Overview data={data.data} runId={runId} />
-          : tab === "attempts" ? <Attempts data={data.data} />
-          : <Routing data={data.data} />}
-      </div>
-    </div>
+    <AnimatePresence>
+      {inspector && (
+        <motion.div key="inspector-backdrop" className="absolute inset-0 z-20 bg-black/25" initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeInspector} aria-hidden />
+      )}
+      {inspector && (
+        <motion.div key="inspector" role="dialog" aria-label={`Task ${inspector.taskId}`}
+          initial={{ x: "100%", opacity: 0.6 }} animate={{ x: 0, opacity: 1 }} exit={{ x: "100%", opacity: 0.6 }} transition={SPRING}
+          className="absolute inset-y-0 right-0 z-30 flex w-[min(920px,74vw)] flex-col border-l border-line bg-bg shadow-2xl shadow-black/40">
+          <header className="glass flex items-center gap-2 border-b border-line/70 px-5 py-3">
+            <Mono className="text-faint">{inspector.taskId}</Mono>
+            <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{t?.title ?? ""}</span>
+            {t && <StatePill state={t.state} />}
+            <button type="button" aria-label="Close inspector" onClick={closeInspector} className="rounded-md p-1 text-muted hover:bg-raised hover:text-ink">
+              <X className="size-4" />
+            </button>
+          </header>
+          <nav className="flex gap-1 border-b border-line px-4" role="tablist">
+            {TABS.map(({ id, label }) => (
+              <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setInspectorTab(id)}
+                className={cn("relative px-2.5 py-2.5 text-[13px]", tab === id ? "text-ink" : "text-muted hover:text-ink")}>
+                {label}
+                {id === "attempts" && t ? <span className="ml-1 text-faint">{t.attempts}</span> : null}
+                {tab === id && (
+                  <motion.span layoutId="inspector-tab" transition={SPRING} className="absolute inset-x-1.5 -bottom-px h-0.5 rounded-full bg-accent" />
+                )}
+              </button>
+            ))}
+          </nav>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div key={`${key}:${tab}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              transition={SOFT} className={cn("min-h-0 flex-1", fullHeight ? "overflow-hidden" : "overflow-y-auto")}>
+              {tab === "changes" ? <Changes project={root} runId={inspector.runId} taskId={inspector.taskId} accepted={t?.state === "SUCCEEDED"} />
+                : tab === "logs" ? <Logs project={root} runId={inspector.runId} taskId={inspector.taskId} />
+                : !data.data ? (data.error ? <Empty>{data.error.message}</Empty> : <Loading />)
+                : tab === "overview" ? <Overview data={data.data} runId={inspector.runId} />
+                : tab === "attempts" ? <Attempts data={data.data} />
+                : <Routing data={data.data} />}
+            </motion.div>
+          </AnimatePresence>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

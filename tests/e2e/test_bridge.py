@@ -314,3 +314,17 @@ def test_session_preferences_policy_view_and_usage(client, repo, tmp_path):
     os.utime(policy_file, (time.time() + 5, time.time() + 5))  # a distinct mtime even on coarse clocks
     raised = client.ok("sessions.set_preferences", project=project, session=session["id"], approvals="bypass")
     assert raised["preferences"]["approvals"] == "bypass", "the bridge reloads a changed policy"
+
+
+def test_plan_limits_are_read_in_the_background(client, repo, tmp_path):
+    project = setup_project(repo, tmp_path, {})
+    first = client.ok("usage.limits", project=project)
+    assert first["pending"] is True, "the read starts in the background and the bridge answers at once"
+    assert client.ok("sessions.list", project=project) == [], "other requests are not blocked by the read"
+    deadline = time.time() + 20
+    result = first
+    while result["pending"] and time.time() < deadline:
+        time.sleep(0.2)
+        result = client.ok("usage.limits", project=project)
+    assert not result["pending"] and result["limits"] == [], "test adapters report no plan limits"
+    assert client.ok("usage.limits", project=project)["pending"] is False, "a fresh result is reused"
