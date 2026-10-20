@@ -6,6 +6,7 @@ import { latestRun } from "../lib/types";
 import { cn, durationMs, fmtDuration, OUTCOME_TONE, stateTone } from "../lib/ui";
 import { useBridge } from "../lib/useBridge";
 import { useApp } from "../store/app";
+import { Skeleton } from "./feedback";
 import { StatePill } from "./primitives";
 
 const NODE_W = 196;
@@ -175,7 +176,14 @@ export function RunTimeline() {
 
   if (!run) return <div className="grid flex-1 place-items-center text-[13px] text-faint">No run in this session yet.</div>;
   if (!data) {
-    return <div className="grid flex-1 place-items-center text-[13px] text-faint">{timeline.error?.message ?? "Loading…"}</div>;
+    return timeline.error ? (
+      <div className="grid flex-1 place-items-center text-[13px] text-err">{timeline.error.message}</div>
+    ) : (
+      <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-6" role="status" aria-busy="true" aria-label="Loading the timeline">
+        <div className="flex gap-14">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-48 rounded-xl" />)}</div>
+        {[0, 1, 2].map((i) => <div key={i} className="flex gap-4"><Skeleton className="w-36" /><Skeleton className="h-4 flex-1 rounded-full" /></div>)}
+      </div>
+    );
   }
   if (data.tasks.length === 0) {
     return <div className="grid flex-1 place-items-center text-[13px] text-faint">Tasks appear here once the plan is approved.</div>;

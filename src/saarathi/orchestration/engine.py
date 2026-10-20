@@ -207,6 +207,17 @@ class Engine:
 
         return LeadAgent(adapter, lead_model, self.p.policy, self.p.logs / run_id, on_usage=record)
 
+    @staticmethod
+    def _lead_failure(step: str, exc: LeadError, lead: LeadAgent) -> str:
+        """A pause reason a person can act on. A plan limit is not a crash: say who is limited and what to do."""
+        if exc.kind == ErrorKind.QUOTA_EXHAUSTED.value:
+            who = f"{lead.identity['adapter']}:{lead.identity['model']}"
+            return (
+                f"the engineering lead ({who}) has reached its plan limit: {str(exc).split(': ', 1)[-1]}."
+                " Resume after it resets, or set orchestration.lead_substitute to another model"
+            )
+        return f"{step}: {exc}"
+
     def _lead_workspace(self, run_id: str, commit: str) -> Path:
         path = self.p.worktree_root(run_id) / "lead"
         if not (path / ".git").exists():
@@ -244,7 +255,7 @@ class Engine:
         try:
             intake = await lead.intake(self._brief(run_id), self._summary(workspace), workspace)
         except LeadError as exc:
-            self._pause(run_id, f"lead intake failed: {exc}")
+            self._pause(run_id, self._lead_failure("lead intake failed", exc, lead))
             return False
         self.p.store.update_run(
             run_id, actor=ACTOR, event="lead.intake_recorded", intake=intake.model_dump(), lead=lead.identity
@@ -291,7 +302,7 @@ class Engine:
                 self._brief(run_id), self._summary(workspace), answers, intake.assumptions, workspace
             )
         except LeadError as exc:
-            self._pause(run_id, f"planning failed: {exc}")
+            self._pause(run_id, self._lead_failure("planning failed", exc, lead))
             return False
         self.p.store.update_run(run_id, actor=ACTOR, event="plan.proposed", plan=plan.model_dump())
         self.p.store.transition_run(run_id, RunState.AWAITING_PLAN_APPROVAL, actor=ACTOR)
@@ -1431,7 +1442,7 @@ class Engine:
         try:
             verdict = await lead.review(plan, evidence_text, diff, path)
         except LeadError as exc:
-            self._pause(run_id, f"lead review failed: {exc}")
+            self._pause(run_id, self._lead_failure("lead review failed", exc, lead))
             return False
         store.update_run(run_id, actor="lead", event="lead.reviewed", review=verdict.model_dump())
         store.transition_run(run_id, RunState.AWAITING_REVIEW, actor=ACTOR, payload={"lead_decision": verdict.decision})

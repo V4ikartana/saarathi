@@ -108,7 +108,8 @@ class ProbeResult:
 
 
 _QUOTA = re.compile(
-    r"(?i)usage limit|quota|credit balance|out of credits|billing|limit (?:has been )?reached|plan limit|weekly limit"
+    r"(?i)usage limit|quota|credit balance|out of credits|usage credits|billing|limit (?:has been )?reached|plan limit"
+    r"|weekly limit|session limit|5-hour limit|hit your (?:\w+[ -])?limit"
 )
 _RATE_LIMIT = re.compile(r"(?i)rate[ _-]?limit|too many requests|\b429\b|overloaded|\b529\b|try again later")
 _AUTH = re.compile(r"(?i)not logged in|unauthori[sz]ed|\b401\b|authentication|please log ?in|invalid api key")

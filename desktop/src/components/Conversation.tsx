@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleDot, GitBranch, Info, ShieldAlert, XCircle } from "lucide-react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 
@@ -7,7 +7,9 @@ import type { ConversationEntry, PlannedTask, Question, RunSnapshot } from "../l
 import { latestRun } from "../lib/types";
 import { cn, timeOf } from "../lib/ui";
 import { useApp } from "../store/app";
-import { Button, SOFT } from "./primitives";
+import { AnimatedMark } from "./brand";
+import { Skeleton, SkeletonCard, ThinkingDots } from "./feedback";
+import { Button, SOFT, STAGGER } from "./primitives";
 
 const LEVEL_ICON = {
   info: <CircleDot className="size-3.5 text-faint" />,
@@ -94,7 +96,7 @@ function PlanCard({ entry, run }: { entry: ConversationEntry; run: RunSnapshot |
       {awaiting && run && (
         <div className="flex items-center gap-2 border-t border-line px-4 py-3">
           <span className="text-[12px] text-muted">Nothing runs until you approve.</span>
-          <Button tone="primary" className="ml-auto" disabled={busy[`approve:${run.run_id}`]}
+          <Button tone="primary" className="ml-auto" loading={busy[`approve:${run.run_id}`]}
             onClick={() => void approve(run.run_id)}>Approve plan</Button>
         </div>
       )}
@@ -146,10 +148,84 @@ function ReviewCard({ entry, run }: { entry: ConversationEntry; run: RunSnapshot
       {run?.pending_approval === "review" && (
         <div className="mt-3 flex items-center gap-2">
           <span className="text-[12px] text-muted">Approving records the report. Saarathi never merges into your branches.</span>
-          <Button tone="primary" className="ml-auto" disabled={busy[`approve:${run.run_id}`]}
+          <Button tone="primary" className="ml-auto" loading={busy[`approve:${run.run_id}`]}
             onClick={() => void approve(run.run_id)}>Approve and finish</Button>
         </div>
       )}
+    </div>
+  );
+}
+
+const PHASE: Record<string, string> = {
+  CREATED: "Starting the run",
+  INTAKE: "The engineering lead is reading your request",
+  PLANNING: "The engineering lead is planning",
+  EXECUTING: "Workers are building in isolated worktrees",
+  VERIFYING: "Merging and running integration checks",
+};
+
+/** The live "working" row: only while the engine is actually driving the run. */
+function WorkingRow({ run }: { run: RunSnapshot }) {
+  const done = run.tasks.filter((t) => t.state === "SUCCEEDED").length;
+  const running = run.tasks.filter((t) => t.state === "RUNNING").length;
+  return (
+    <motion.div layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={SOFT}
+      className="mt-2 flex items-center gap-3 rounded-2xl border border-accent/25 bg-accent/[0.06] px-4 py-3" role="status" aria-live="polite">
+      <ThinkingDots className="text-accent" />
+      <div className="min-w-0 flex-1 text-[13px]">
+        <div className="font-medium">{PHASE[run.state] ?? "Working"}</div>
+        {run.state === "EXECUTING" && run.tasks.length > 0 && (
+          <div className="text-[12px] text-muted tabular">{done} of {run.tasks.length} tasks passed{running ? ` · ${running} running` : ""}</div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+const SUGGESTIONS = [
+  "Add a health check endpoint with tests",
+  "Fix the failing tests and explain the root cause",
+  "Refactor the settings module and keep behaviour identical",
+];
+
+function EmptySession() {
+  const setDraft = useApp((s) => s.setDraft);
+  return (
+    <div className="grid flex-1 place-items-center px-8">
+      <div className="flex max-w-lg flex-col items-center text-center">
+        <AnimatedMark size={64} />
+        <motion.h2 className="mt-6 text-[26px] font-bold tracking-tight" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ ...SOFT, delay: 0.15 }}>What should we build?</motion.h2>
+        <motion.p className="mt-2 text-[14px] leading-relaxed text-muted" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ ...SOFT, delay: 0.22 }}>
+          Describe the change. The engineering lead asks if something is unclear, proposes a plan for your approval, then
+          routes tasks to Claude Code, Codex or Antigravity in isolated worktrees.
+        </motion.p>
+        <div className="mt-6 flex flex-wrap justify-center gap-2">
+          {SUGGESTIONS.map((text, i) => (
+            <motion.button key={text} type="button" onClick={() => setDraft(text)}
+              initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ ...SOFT, delay: 0.3 + i * STAGGER }}
+              whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}
+              className="rounded-full border border-line bg-panel px-3.5 py-1.5 text-[13px] text-muted hover:border-accent/50 hover:text-ink elev-1">
+              {text}
+            </motion.button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConversationSkeleton() {
+  return (
+    <div className="flex-1 overflow-hidden" role="status" aria-busy="true" aria-label="Loading the session">
+      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-6 py-8">
+        <Skeleton className="ml-auto h-10 w-2/3 rounded-2xl" />
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center gap-3"><Skeleton className="size-4 rounded-full" /><Skeleton className="w-1/2" /></div>
+        ))}
+        <SkeletonCard lines={4} />
+      </div>
     </div>
   );
 }
@@ -158,26 +234,15 @@ export function Conversation() {
   const view = useApp((s) => s.view);
   const end = useRef<HTMLDivElement>(null);
   const count = view?.conversation.length ?? 0;
-  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth" }), [count]);
+  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [count]);
 
-  if (!view) return <div className="flex-1" />;
-  if (view.conversation.length === 0) {
-    return (
-      <div className="grid flex-1 place-items-center px-8 text-center">
-        <div className="max-w-md">
-          <div className="text-[18px] font-semibold">What should we build?</div>
-          <p className="mt-2 text-[13px] text-muted">
-            Describe the change. The engineering lead asks questions if something is unclear, proposes a plan for your
-            approval, then routes tasks to Claude Code, Codex or Antigravity in isolated worktrees.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  if (!view) return <ConversationSkeleton />;
+  if (view.conversation.length === 0) return <EmptySession />;
   const lastRun = latestRun(view);
+  const working = lastRun && lastRun.driver.running && !lastRun.pending_approval && !lastRun.terminal;
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-2 px-6 py-6">
+      <div className="mx-auto flex max-w-3xl flex-col gap-2 px-6 py-8">
         {view.conversation.map((e) => {
           const run = e.run_id ? view.runs[e.run_id] : undefined;
           const body = e.role === "user" ? <UserMessage entry={e} />
@@ -192,8 +257,9 @@ export function Conversation() {
             </motion.div>
           );
         })}
+        <AnimatePresence>{working && lastRun && <WorkingRow key="working" run={lastRun} />}</AnimatePresence>
         {lastRun?.pending_approval === "escalation" && (
-          <div className="rounded-xl border border-warn/40 bg-panel px-4 py-3 text-[13px]">
+          <div className="rounded-2xl border border-warn/40 bg-panel px-4 py-3 text-[13px]">
             The lead proposes changing an accepted decision. Review it with <code>saarathi escalations</code>; the
             approval screen arrives in a later milestone.
           </div>

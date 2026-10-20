@@ -5,7 +5,7 @@ action goes through `saarathi bridge --stdio` (JSON-RPC, protocol 1, no network 
 [ADR-0013](../docs/architecture/decisions/ADR-0013-desktop-bridge.md) and
 [the architecture](../docs/desktop/architecture.md)).
 
-> **Status: v0.1 (milestones M1–M4, plus the design refresh).** Open a repository, manage sessions, send a request, watch real engine events
+> **Status: v0.1 (milestones M1–M4 and the redesign in [DESIGN.md](DESIGN.md)).** Open a repository, manage sessions, send a request, watch real engine events
 > stream in, answer the lead's questions, approve the plan and final review, stop, cancel and resume runs, and see
 > sessions restored after a restart. Inspect any task (attempts, verification evidence, routing decisions, Monaco
 > diffs, xterm.js logs) and follow the run on a timeline. Choose a session's approval preset and worker model, review

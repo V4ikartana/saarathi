@@ -103,6 +103,15 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   off). Drivers read each CLI's limits on a background thread (refreshed every ten minutes; the first dispatch waits at
   most 15 seconds) and treat a model below the threshold like a cooldown until its window resets. Antigravity's
   per-group windows apply only to their own model families. A `provider.near_limit` event explains every skip.
+- Desktop redesign from the UI/UX Pro Max skill (`desktop/DESIGN.md`): Minimalism & Swiss with AI-native touches, dark
+  first with an indigo accent, system font plus bundled JetBrains Mono. An animated launch screen and mark, shimmer
+  skeletons for every async view, a live working row with the engine's real phase, a run progress bar, busy buttons,
+  count-up figures, toasts for every confirmation and error, a ⌘K command palette, ⌘, for Settings, starter prompts in
+  empty sessions and an error boundary. Shared motion tokens: springs in, faster exits, 40 ms staggers, reduced
+  motion respected.
+- Claude's "You've hit your session limit" and "requires usage credits" are classified as plan limits, and a lead that
+  hits its plan limit pauses the run with who is limited and what to do (resume after the reset, or set
+  `orchestration.lead_substitute`).
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now

@@ -1,95 +1,169 @@
 @import "tailwindcss";
+@import "@fontsource-variable/jetbrains-mono";
 
 /*
- * Saarathi Desktop design tokens. Dark by default; light when the system or the person asks for it.
- * Contrast targets: ink and muted text >= 7:1 and >= 4.5:1 on the background, faint text >= 4.5:1.
- * The accent is set at runtime (lib/theme.ts) so people can choose it.
+ * Saarathi Desktop design system (see desktop/DESIGN.md).
+ * Minimalism & Swiss + AI-native, dark first. Every text pair meets WCAG AA (normal text >= 4.5:1);
+ * ink and muted text are >= 7:1 on the background. The accent is set at runtime (lib/theme.ts).
  */
 @theme {
-  --color-bg: #0b0c0f;
-  --color-panel: #121418;
-  --color-raised: #1b1e24;
-  --color-line: #2b3038;
-  --color-ink: #f3f4f6;
-  --color-muted: #b0b6c1;
-  --color-faint: #848c99;
-  --color-accent: var(--accent, #f0b44c);
-  --color-accent-ink: var(--accent-ink, #1c1405);
-  --color-ok: #4cc38a;
-  --color-warn: #ebb34f;
-  --color-err: #f27a73;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI Variable",
-    "Segoe UI", system-ui, sans-serif;
-  --font-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  /* Surfaces, darkest to lightest */
+  --color-bg: #09090b;
+  --color-panel: #111114;
+  --color-raised: #19191e;
+  --color-elevated: #212128;
+  --color-line: #2a2a32;
+  --color-line-strong: #3a3a44;
+  /* Text */
+  --color-ink: #f4f4f6;
+  --color-muted: #b4b4bf;
+  --color-faint: #8a8a96;
+  /* Accent and semantics */
+  --color-accent: var(--accent, #8b8cf8);
+  --color-accent-ink: var(--accent-ink, #0b0b24);
+  --color-ok: #4ade80;
+  --color-warn: #fbbf24;
+  --color-err: #f87171;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable", "Segoe UI",
+    system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  --radius-card: 16px;
+  --radius-control: 10px;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+
+  --animate-shimmer: shimmer 1.6s var(--ease-out) infinite;
+  --animate-dot: dot 1.2s ease-in-out infinite;
+  --animate-sweep: sweep 1.4s var(--ease-out) infinite;
+  --animate-glow: glow 2.4s ease-in-out infinite;
+
+  @keyframes shimmer {
+    0% { background-position: 150% 0; }
+    100% { background-position: -50% 0; }
+  }
+  @keyframes dot {
+    0%, 80%, 100% { opacity: 0.25; transform: translateY(0) scale(0.85); }
+    40% { opacity: 1; transform: translateY(-2px) scale(1); }
+  }
+  @keyframes sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(250%); }
+  }
+  @keyframes glow {
+    0%, 100% { opacity: 0.35; transform: scale(0.96); }
+    50% { opacity: 0.7; transform: scale(1.04); }
+  }
 }
 
 @layer base {
   :root.light {
     --color-bg: #f5f5f7;
     --color-panel: #ffffff;
-    --color-raised: #ececf0;
-    --color-line: #d6d6dc;
+    --color-raised: #f0f0f3;
+    --color-elevated: #ffffff;
+    --color-line: #dcdce2;
+    --color-line-strong: #c6c6ce;
     --color-ink: #1d1d1f;
-    --color-muted: #48484d;
-    --color-faint: #6b6b71;
-    --color-ok: #1f8a55;
-    --color-warn: #a86400;
-    --color-err: #c9372c;
+    --color-muted: #48484e;
+    --color-faint: #6b6b72;
+    --color-ok: #15803d;
+    --color-warn: #a16207;
+    --color-err: #c2271d;
   }
 
   @media (prefers-color-scheme: light) {
-    :root:not(.dark) {
+    :root.system {
       --color-bg: #f5f5f7;
       --color-panel: #ffffff;
-      --color-raised: #ececf0;
-      --color-line: #d6d6dc;
+      --color-raised: #f0f0f3;
+      --color-elevated: #ffffff;
+      --color-line: #dcdce2;
+      --color-line-strong: #c6c6ce;
       --color-ink: #1d1d1f;
-      --color-muted: #48484d;
-      --color-faint: #6b6b71;
-      --color-ok: #1f8a55;
-      --color-warn: #a86400;
-      --color-err: #c9372c;
+      --color-muted: #48484e;
+      --color-faint: #6b6b72;
+      --color-ok: #15803d;
+      --color-warn: #a16207;
+      --color-err: #c2271d;
     }
   }
 }
 
 html, body, #root { height: 100%; }
+html { color-scheme: dark; }
+:root.light { color-scheme: light; }
 body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-ink);
   font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.5;
   letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
 }
-h1, h2, h3 { letter-spacing: -0.015em; }
+h1, h2, h3 { letter-spacing: -0.02em; text-wrap: balance; }
+.tabular { font-variant-numeric: tabular-nums; }
 ::selection { background: color-mix(in oklab, var(--color-accent) 35%, transparent); }
 
-/* Every interactive element eases instead of snapping; motion-sensitive people get none (see lib/theme.ts). */
-button, a, input, select, textarea, [role="tab"] {
-  transition: background-color 180ms var(--ease-soft), color 180ms var(--ease-soft),
-    border-color 180ms var(--ease-soft), box-shadow 220ms var(--ease-soft), opacity 180ms var(--ease-soft);
+/* Interaction states ease rather than snap (skill §7 state-transition). */
+button, a, input, select, textarea, [role="tab"], [role="option"] {
+  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out),
+    box-shadow 220ms var(--ease-out), opacity 160ms var(--ease-out);
 }
-:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
-  transition-duration: 1ms !important;
-  animation-duration: 1ms !important;
+button:not(:disabled), [role="option"], summary, select { cursor: pointer; }
+
+:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-accent) 75%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
-:focus-visible { outline: 2px solid color-mix(in oklab, var(--color-accent) 70%, transparent); outline-offset: 2px; border-radius: 6px; }
+/* Elevation: one consistent shadow language. */
+.elev-1 { box-shadow: 0 1px 0 0 color-mix(in oklab, white 4%, transparent) inset, 0 1px 2px rgb(0 0 0 / 0.25); }
+.elev-2 { box-shadow: 0 1px 0 0 color-mix(in oklab, white 5%, transparent) inset, 0 8px 24px -8px rgb(0 0 0 / 0.45); }
+.elev-3 { box-shadow: 0 1px 0 0 color-mix(in oklab, white 6%, transparent) inset, 0 24px 64px -16px rgb(0 0 0 / 0.6); }
+:root.light .elev-1 { box-shadow: 0 1px 2px rgb(0 0 0 / 0.06); }
+:root.light .elev-2 { box-shadow: 0 8px 24px -10px rgb(0 0 0 / 0.18); }
+:root.light .elev-3 { box-shadow: 0 24px 64px -18px rgb(0 0 0 / 0.28); }
 
 .glass {
-  background: color-mix(in oklab, var(--color-panel) 78%, transparent);
-  backdrop-filter: saturate(180%) blur(18px);
-  -webkit-backdrop-filter: saturate(180%) blur(18px);
+  background: color-mix(in oklab, var(--color-panel) 72%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-.prose-sm p { margin: 0.35rem 0; }
-.prose-sm code { font-family: var(--font-mono); font-size: 12px; background: var(--color-raised); padding: 0 4px; border-radius: 4px; }
-.prose-sm pre { background: var(--color-raised); padding: 10px; border-radius: 8px; overflow-x: auto; }
+/* Loading surfaces */
+.skeleton {
+  background: linear-gradient(90deg, var(--color-raised) 0%, var(--color-elevated) 40%, var(--color-raised) 80%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+  border-radius: 8px;
+}
+.accent-glow {
+  background: radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--color-accent) 40%, transparent), transparent 70%);
+  filter: blur(24px);
+}
+
+/* Reduced motion: no keyframes, no smooth scroll; motion components are handled by MotionConfig. */
+:root[data-motion="reduced"] *, :root[data-motion="reduced"] *::before, :root[data-motion="reduced"] *::after {
+  animation: none !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}
+
+.prose-sm p { margin: 0.4rem 0; }
+.prose-sm code { font-family: var(--font-mono); font-size: 12px; background: var(--color-raised); padding: 1px 5px; border-radius: 5px; }
+.prose-sm pre { background: var(--color-raised); padding: 10px; border-radius: 10px; overflow-x: auto; }
 .prose-sm ul { padding-left: 1.2rem; list-style: disc; }
+.break-anywhere { overflow-wrap: anywhere; }
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 8px; border: 2px solid var(--color-bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--color-line-strong); }
 ::-webkit-scrollbar-track { background: transparent; }

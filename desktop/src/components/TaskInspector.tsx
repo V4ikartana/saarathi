@@ -16,6 +16,7 @@ import type {
 import { cn, durationMs, fmtDuration, fmtTokens, OUTCOME_TONE, shortSha, timeOf } from "../lib/ui";
 import { useBridge } from "../lib/useBridge";
 import { type InspectorTab, useApp } from "../store/app";
+import { SkeletonLines } from "./feedback";
 import { SOFT, SPRING, StatePill } from "./primitives";
 
 const DiffView = lazy(() => import("./DiffView"));
@@ -47,7 +48,13 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 function Loading() {
-  return <Empty>Loading…</Empty>;
+  return (
+    <div className="space-y-5 px-5 py-5" role="status" aria-busy="true" aria-label="Loading">
+      <SkeletonLines lines={2} />
+      <SkeletonLines lines={4} />
+      <SkeletonLines lines={3} />
+    </div>
+  );
 }
 
 function OutcomePill({ attempt }: { attempt: Pick<Attempt, "status" | "outcome"> }) {

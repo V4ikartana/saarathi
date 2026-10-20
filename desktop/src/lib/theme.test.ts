@@ -19,6 +19,7 @@ describe("per-viewer settings", () => {
     expect(loadTheme()).toBe("light");
     applyTheme("system");
     expect([...document.documentElement.classList]).not.toContain("light");
+    expect([...document.documentElement.classList]).toContain("system");
     expect(loadTheme()).toBe("system");
   });
 });
@@ -29,7 +30,7 @@ describe("appearance", () => {
   it("starts from sensible defaults and ignores tampered values", async () => {
     const { loadAppearance, DEFAULT_APPEARANCE } = await import("./theme");
     expect(loadAppearance()).toEqual(DEFAULT_APPEARANCE);
-    localStorage.setItem("saarathi.appearance", JSON.stringify({ accent: "neon", scale: 7, motion: "wild", theme: "dark" }));
+    localStorage.setItem("saarathi.appearance.v2", JSON.stringify({ accent: "neon", scale: 7, motion: "wild", theme: "dark" }));
     expect(loadAppearance()).toEqual({ ...DEFAULT_APPEARANCE, theme: "dark" });
   });
 

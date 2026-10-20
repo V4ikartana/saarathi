@@ -2,7 +2,7 @@
 import type { SessionPreferences } from "./types";
 
 export type Theme = "system" | "light" | "dark";
-export type Accent = "amber" | "blue" | "green" | "violet" | "pink" | "graphite";
+export type Accent = "indigo" | "amber" | "blue" | "green" | "violet" | "pink" | "graphite";
 export type Motion = "system" | "full" | "reduced";
 export type Scale = 0.9 | 1 | 1.1 | 1.2;
 
@@ -14,9 +14,10 @@ export interface Appearance {
   showExecution: boolean;
 }
 
+// Dark first with the AI-native indigo accent (design system: desktop/DESIGN.md).
 export const DEFAULT_APPEARANCE: Appearance = {
-  theme: "system",
-  accent: "amber",
+  theme: "dark",
+  accent: "indigo",
   scale: 1,
   motion: "system",
   showExecution: true,
@@ -24,6 +25,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
 
 // Each accent has a dark-theme and a light-theme value, both with text that keeps 4.5:1 contrast on it.
 export const ACCENTS: Record<Accent, { label: string; dark: [string, string]; light: [string, string] }> = {
+  indigo: { label: "Indigo", dark: ["#8b8cf8", "#0b0b24"], light: ["#4f46e5", "#ffffff"] },
   amber: { label: "Amber", dark: ["#f0b44c", "#1c1405"], light: ["#b5650d", "#ffffff"] },
   blue: { label: "Blue", dark: ["#5aa5ff", "#04162e"], light: ["#0066cc", "#ffffff"] },
   green: { label: "Green", dark: ["#46d391", "#03180d"], light: ["#1a7f4b", "#ffffff"] },
@@ -33,7 +35,7 @@ export const ACCENTS: Record<Accent, { label: string; dark: [string, string]; li
 };
 
 const THEME_KEY = "saarathi.theme";
-const APPEARANCE_KEY = "saarathi.appearance";
+const APPEARANCE_KEY = "saarathi.appearance.v2"; // v2: the redesign starts from its own defaults
 const DEFAULTS_KEY = "saarathi.defaultPreferences";
 
 function read(key: string): string | null {
@@ -59,8 +61,7 @@ export function loadTheme(): Theme {
 export function loadAppearance(): Appearance {
   try {
     const raw = JSON.parse(read(APPEARANCE_KEY) ?? "{}") as Partial<Appearance>;
-    const legacy = read(THEME_KEY);
-    const theme = raw.theme ?? (legacy === "light" || legacy === "dark" ? legacy : "system");
+    const theme = raw.theme === "light" || raw.theme === "dark" || raw.theme === "system" ? raw.theme : DEFAULT_APPEARANCE.theme;
     return {
       theme,
       accent: raw.accent && raw.accent in ACCENTS ? raw.accent : DEFAULT_APPEARANCE.accent,
@@ -88,6 +89,7 @@ export function applyAppearance(a: Appearance): void {
   const root = document.documentElement;
   root.classList.toggle("dark", a.theme === "dark");
   root.classList.toggle("light", a.theme === "light");
+  root.classList.toggle("system", a.theme === "system");
   const [accent, ink] = ACCENTS[a.accent][isDarkTheme(a.theme) ? "dark" : "light"];
   root.style.setProperty("--accent", accent);
   root.style.setProperty("--accent-ink", ink);

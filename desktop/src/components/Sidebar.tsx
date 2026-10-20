@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 
 import { cn } from "../lib/ui";
+import { Skeleton } from "./feedback";
 import { type Page, useApp } from "../store/app";
 
 const PAGES: { id: Page; label: string; icon: typeof Settings }[] = [
@@ -12,9 +13,18 @@ const PAGES: { id: Page; label: string; icon: typeof Settings }[] = [
 ];
 import { Button, Mark, SOFT, SPRING, StatePill, Switch } from "./primitives";
 
+function ago(iso: string): string {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  if (Number.isNaN(minutes)) return "";
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  if (minutes < 60 * 24) return `${Math.round(minutes / 60)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 export function Sidebar() {
   const { project, sessions, activeSessionId, search, showArchived, closeProject, createSession, selectSession,
-    setSearch, toggleArchived, renameSession, archiveSession, page, setPage } = useApp();
+    setSearch, toggleArchived, renameSession, archiveSession, page, setPage, busy } = useApp();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -46,7 +56,11 @@ export function Sidebar() {
       </div>
 
       <nav className="mt-2 flex-1 overflow-y-auto px-2" aria-label="Sessions">
-        {sessions.length === 0 && <p className="px-2 py-3 text-[12px] text-faint">No sessions yet.</p>}
+        {sessions.length === 0 && (busy.sessions ? (
+          <div className="space-y-3 px-2 py-2" role="status" aria-busy="true" aria-label="Loading sessions">
+            {[0, 1, 2].map((i) => <div key={i}><Skeleton className="mb-1.5 w-3/4" /><Skeleton className="h-2.5 w-1/3" /></div>)}
+          </div>
+        ) : <p className="px-2 py-3 text-[12px] text-faint">No sessions yet. Press ⌘N to start one.</p>)}
         <AnimatePresence initial={false}>
         {sessions.map((s) => (
           <motion.div key={s.id} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
@@ -68,7 +82,7 @@ export function Sidebar() {
                 <div className={cn("truncate text-[13px]", s.status === "archived" && "text-faint")}>{s.title}</div>
                 <div className="mt-0.5 flex items-center gap-1.5">
                   <StatePill state={s.last_state} />
-                  {s.run_count > 1 && <span className="text-[11px] text-faint">{s.run_count} runs</span>}
+                  <span className="text-[11px] text-faint">{ago(s.updated_at)}</span>
                 </div>
               </button>
             )}

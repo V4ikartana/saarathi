@@ -20,6 +20,7 @@ import type {
 import { cn, fmtDuration, fmtTokens, resetsIn, timeOf } from "../lib/ui";
 import { useBridge, type Query } from "../lib/useBridge";
 import { useApp } from "../store/app";
+import { AnimatedNumber, Skeleton, SkeletonCard, SkeletonLines, ThinkingDots } from "./feedback";
 import { Button, Meter, Reveal, Segmented, StatePill, Switch } from "./primitives";
 
 function PageShell({ title, subtitle, actions, children }: { title: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode }) {
@@ -55,9 +56,10 @@ function Card({ title, children, className, actions, delay = 0 }: { title?: stri
   );
 }
 
-function Loaded<T>({ query, children }: { query: Query<T>; children: (data: T) => ReactNode }) {
+function Loaded<T>({ query, children, skeleton = 2 }: { query: Query<T>; children: (data: T) => ReactNode; skeleton?: number }) {
   if (query.data !== undefined) return <>{children(query.data)}</>;
-  return <p className="text-[13px] text-faint">{query.error ? query.error.message : "Loading…"}</p>;
+  if (query.error) return <p className="text-[13px] text-err">{query.error.message}</p>;
+  return <div className="space-y-6">{Array.from({ length: skeleton }, (_, i) => <SkeletonCard key={i} lines={i === 0 ? 2 : 4} />)}</div>;
 }
 
 function Mono({ children }: { children: ReactNode }) {
@@ -71,15 +73,17 @@ function cost(row: UsageRow): string {
   return `${row.cost_is_estimate ? "≈ " : ""}$${row.cost_usd.toFixed(4)}`;
 }
 
-function Stat({ label, value, note }: { label: string; value: string; note?: string }) {
+function Stat({ label, value, note }: { label: string; value: ReactNode; note?: string }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wide text-faint">{label}</div>
-      <div className="mt-0.5 text-[18px] font-semibold tabular-nums">{value}</div>
-      {note && <div className="text-[11px] text-faint">{note}</div>}
+      <div className="text-[12px] text-faint">{label}</div>
+      <div className="mt-1 text-[28px] font-bold leading-none tracking-tight tabular-nums">{value}</div>
+      {note && <div className="mt-1.5 text-[12px] text-faint">{note}</div>}
     </div>
   );
 }
+
+const compact = (n: number) => (n >= 10_000 ? `${(n / 1000).toFixed(1)}k` : Math.round(n).toLocaleString());
 
 const TONE_TEXT = { ok: "text-ok", warn: "text-warn", err: "text-err" } as const;
 
@@ -109,12 +113,23 @@ function PlanLimits() {
   }, [project?.root, tick]);
   return (
     <Card title="Plan limits" actions={
-      <Button tone="ghost" disabled={state.loading} onClick={() => void load(true)}>
-        <RefreshCw className={cn("size-3.5", state.loading && "animate-spin")} />{state.loading ? "Reading…" : "Refresh"}
+      <Button tone="ghost" disabled={state.loading} onClick={() => void load(true)} aria-label="Refresh plan limits">
+        <RefreshCw className={cn("size-3.5", state.loading && "animate-spin")} />{state.loading ? "Reading" : "Refresh"}
       </Button>
     }>
       {state.error && <p className="text-[13px] text-err">{state.error}</p>}
-      {!state.limits && !state.error && <p className="text-[13px] text-faint">Asking each provider CLI… (Antigravity takes about 10 seconds)</p>}
+      {!state.limits && !state.error && (
+        <div className="grid gap-5 md:grid-cols-2" role="status" aria-busy="true" aria-label="Reading plan limits">
+          {[0, 1].map((i) => (
+            <div key={i} className="rounded-xl bg-raised/50 px-4 py-3">
+              <Skeleton className="mb-4 h-4 w-1/3" />
+              <Skeleton className="mb-2 w-2/3" /><Skeleton className="mb-4 h-1.5 w-full rounded-full" />
+              <Skeleton className="mb-2 w-1/2" /><Skeleton className="h-1.5 w-full rounded-full" />
+            </div>
+          ))}
+          <p className="col-span-full flex items-center gap-2 text-[12px] text-faint"><ThinkingDots className="text-accent" />Asking each provider CLI. Antigravity takes about ten seconds.</p>
+        </div>
+      )}
       <div className="grid gap-5 md:grid-cols-2">
         {(state.limits ?? []).map((p, i) => (
           <Reveal key={p.adapter} delay={i * 0.05}>
@@ -166,9 +181,9 @@ export function UsagePage() {
             </div>
             <Card>
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                <Stat label="Calls" value={String(u.totals.calls)} note={`${u.totals.succeeded} passed · ${u.totals.failed} failed`} />
-                <Stat label="Input tokens" value={fmtTokens(u.totals.input_tokens)} note={u.totals.cached_input_tokens ? `${fmtTokens(u.totals.cached_input_tokens)} cached` : undefined} />
-                <Stat label="Output tokens" value={fmtTokens(u.totals.output_tokens)} note={u.totals.unreported ? `${u.totals.unreported} calls reported none` : undefined} />
+                <Stat label="Calls" value={<AnimatedNumber value={u.totals.calls} />} note={`${u.totals.succeeded} passed · ${u.totals.failed} failed`} />
+                <Stat label="Input tokens" value={<AnimatedNumber value={u.totals.input_tokens} format={compact} />} note={u.totals.cached_input_tokens ? `${fmtTokens(u.totals.cached_input_tokens)} cached` : undefined} />
+                <Stat label="Output tokens" value={<AnimatedNumber value={u.totals.output_tokens} format={compact} />} note={u.totals.unreported ? `${u.totals.unreported} calls reported none` : undefined} />
                 <Stat label="Cost" value={cost(u.totals)} note={u.totals.cost_reported ? `${u.totals.cost_reported} calls reported a cost` : undefined} />
               </div>
             </Card>
@@ -358,7 +373,7 @@ function ModelsPanel({ root }: { root: string }) {
           <div className="mt-1 text-[12px] text-faint">Edit <span className="font-mono">{policy.data?.path}</span>; changes apply on the next request.</div>
         </div>
       ))}
-      {!models.data && <p className="mt-3 text-[13px] text-faint">{models.error?.message ?? "Loading…"}</p>}
+      {!models.data && (models.error ? <p className="mt-3 text-[13px] text-err">{models.error.message}</p> : <div className="mt-4"><SkeletonLines lines={5} /></div>)}
       <div className="mt-4 space-y-5">
         {[...groups.entries()].map(([adapter, list]) => (
           <div key={adapter}>
@@ -494,7 +509,7 @@ export function SettingsPage() {
         </Row>
       </Card>
       <Card title="Providers" delay={0.12} actions={
-        <Button disabled={!root || doctor.loading} onClick={() => void runDoctor()}><RefreshCw className={cn("size-3.5", doctor.loading && "animate-spin")} />Check providers</Button>
+        <Button disabled={!root} loading={doctor.loading} onClick={() => void runDoctor()}><RefreshCw className="size-3.5" />Check providers</Button>
       }>
         <p className="text-[13px] text-muted">Checks each provider CLI: installed, version, sign-in method and whether it is metered. Nothing is sent to a model.</p>
         {doctor.error && <p className="mt-2 text-[13px] text-err">{doctor.error}</p>}

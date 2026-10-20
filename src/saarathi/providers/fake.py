@@ -29,6 +29,7 @@ from saarathi.providers.base import (
     InvocationResult,
     ProbeResult,
     ProviderAdapter,
+    classify_error,
 )
 from saarathi.providers.limits import ProviderLimits, limits_from_options
 
@@ -118,6 +119,16 @@ class FakeAdapter(ProviderAdapter):
                 )
             if isinstance(response, list):
                 response = response[min(attempt, len(response) - 1)]
+            if isinstance(response, dict) and "__error__" in response:  # a scripted provider failure
+                message = str(response["__error__"])
+                return InvocationResult(
+                    ok=False,
+                    structured=None,
+                    text=message,
+                    usage=usage,
+                    error_kind=classify_error(message),
+                    error=message,
+                )
             return InvocationResult(ok=True, structured=response, text=json.dumps(response), usage=usage)
 
         steps = script.get("execute", {}).get(inv.task_id, [])

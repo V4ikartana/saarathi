@@ -57,3 +57,19 @@ def test_the_check_can_be_turned_off(repo, tmp_path):
     assert state is RunState.AWAITING_REVIEW
     assert not [e for e in project.store.events(run_id) if e.type == "provider.near_limit"]
     assert "fake-codex" in {a.adapter for a in project.store.attempts(run_id)}, "spread sends work to both again"
+
+
+def test_a_lead_at_its_plan_limit_pauses_with_an_actionable_reason(repo, tmp_path):
+    import json
+
+    script = make_script(tmp_path / "s.json", {})
+    data = json.loads(script.read_text())
+    data["complete"]["lead.intake"] = {"__error__": "You've hit your session limit · resets 5:40pm (Asia/Calcutta)"}
+    script.write_text(json.dumps(data))
+    init_project(repo, script, tmp_path / "rec.jsonl")
+    project = Project.load(repo)
+    run_id, state = go(project, tmp_path)
+    reason = project.store.get_run(run_id).pause_reason
+    assert state is RunState.PAUSED
+    assert "engineering lead (fake-claude:opus) has reached its plan limit" in reason
+    assert "resets 5:40pm" in reason and "lead_substitute" in reason

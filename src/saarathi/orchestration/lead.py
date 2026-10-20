@@ -23,9 +23,10 @@ M = TypeVar("M", bound=BaseModel)
 
 
 class LeadError(Exception):
-    def __init__(self, message: str, *, retryable: bool = False) -> None:
+    def __init__(self, message: str, *, retryable: bool = False, kind: str | None = None) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.kind = kind  # the provider error kind (e.g. "quota_exhausted") when the CLI call itself failed
 
 
 def plan_policy_problems(plan: Plan, policy: Policy) -> list[str]:
@@ -89,7 +90,9 @@ class LeadAgent:
         result = await self.adapter.invoke(inv)
         self._record_usage(purpose, result.usage, ok=result.ok and result.structured is not None)
         if not result.ok or result.structured is None:
-            raise LeadError(f"{purpose} failed ({result.error_kind}): {result.error}", retryable=True)
+            raise LeadError(
+                f"{purpose} failed ({result.error_kind}): {result.error}", retryable=True, kind=str(result.error_kind)
+            )
         try:
             return out.model_validate(result.structured)
         except ValidationError as exc:

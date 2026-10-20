@@ -34,6 +34,13 @@ export interface Inspector {
   tab: InspectorTab;
 }
 
+export interface Toast {
+  id: number;
+  kind: "success" | "error" | "info";
+  title: string;
+  detail?: string;
+}
+
 export interface Notice {
   kind: string;
   message: string;
@@ -58,6 +65,10 @@ interface AppState {
   inspector: Inspector | null;
   page: Page;
   appearance: Appearance;
+  toasts: Toast[];
+  /** The composer's text, shared so suggestions and the command palette can fill it. */
+  draft: string;
+  paletteOpen: boolean;
 
   connect: () => Promise<void>;
   openProject: (path: string) => Promise<void>;
@@ -85,6 +96,10 @@ interface AppState {
   closeInspector: () => void;
   setPage: (page: Page) => void;
   setAppearance: (change: Partial<Appearance>) => void;
+  toast: (title: string, kind?: Toast["kind"], detail?: string) => void;
+  dismissToast: (id: number) => void;
+  setDraft: (draft: string) => void;
+  setPaletteOpen: (open: boolean) => void;
   setPreferences: (prefs: SessionPreferences) => Promise<boolean>;
 }
 
@@ -97,6 +112,7 @@ export const useApp = create<AppState>((set, get) => {
     } catch (err) {
       const e = err instanceof BridgeError ? err : new BridgeError({ code: -1, message: String(err) });
       set({ notice: { kind: e.kind, message: e.message, hint: e.hint } });
+      get().toast(e.message, "error", e.hint ?? undefined); // the hint is the recovery path (skill: error-recovery)
       return undefined;
     } finally {
       set((s) => ({ busy: { ...s.busy, [key]: false } }));
@@ -122,6 +138,9 @@ export const useApp = create<AppState>((set, get) => {
     inspector: null,
     page: "session",
     appearance: loadAppearance(),
+    toasts: [],
+    draft: "",
+    paletteOpen: false,
 
     connect: async () => {
       const info = await act("connect", () => call<BridgeInfo>("system.initialize", { client: "saarathi-desktop", protocol: 1 }));
@@ -201,7 +220,8 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     archiveSession: async (id) => {
-      await act("archive", () => call("sessions.archive", { project: root(), session: id }));
+      const done = await act("archive", () => call("sessions.archive", { project: root(), session: id }));
+      if (done !== undefined) get().toast("Session archived", "info", "Show archived sessions to restore it.");
       if (get().activeSessionId === id) set({ activeSessionId: null, view: null });
       await get().refreshSessions();
     },
@@ -230,13 +250,18 @@ export const useApp = create<AppState>((set, get) => {
         }),
       );
       await Promise.all([get().refreshView(), get().refreshSessions()]);
+      if (sent !== undefined) get().toast("Request sent", "success", "The engineering lead is reading it.");
       return sent !== undefined;
     },
 
     approve: async (runId) => {
-      await act(`approve:${runId}`, () =>
-        call("runs.approve", { project: root(), run: runId, idempotency_key: idempotencyKey("approve") }),
+      const done = await act(`approve:${runId}`, () =>
+        call<{ approved: string }>("runs.approve", { project: root(), run: runId, idempotency_key: idempotencyKey("approve") }),
       );
+      if (done) {
+        const what = { plan: "Plan approved", review: "Run completed", escalation: "Decision approved" }[done.approved];
+        get().toast(what ?? "Approved", "success", done.approved === "plan" ? "Workers are starting in isolated worktrees." : undefined);
+      }
       await Promise.all([get().refreshView(), get().refreshSessions()]);
     },
 
@@ -248,17 +273,20 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     stop: async (runId) => {
-      await act(`stop:${runId}`, () => call("runs.stop", { project: root(), run: runId }));
+      const done = await act(`stop:${runId}`, () => call("runs.stop", { project: root(), run: runId }));
+      if (done !== undefined) get().toast("Stopping after the current attempts", "info");
       await Promise.all([get().refreshView(), get().refreshSessions()]);
     },
 
     cancel: async (runId) => {
-      await act(`cancel:${runId}`, () => call("runs.cancel", { project: root(), run: runId }));
+      const done = await act(`cancel:${runId}`, () => call("runs.cancel", { project: root(), run: runId }));
+      if (done !== undefined) get().toast("Run cancelled", "info", "Branches and worktrees are kept.");
       await Promise.all([get().refreshView(), get().refreshSessions()]);
     },
 
     resume: async (runId) => {
-      await act(`resume:${runId}`, () => call("runs.resume", { project: root(), run: runId }));
+      const done = await act(`resume:${runId}`, () => call("runs.resume", { project: root(), run: runId }));
+      if (done !== undefined) get().toast("Run resumed", "success");
       await Promise.all([get().refreshView(), get().refreshSessions()]);
     },
 
@@ -270,6 +298,14 @@ export const useApp = create<AppState>((set, get) => {
     setInspectorTab: (tab) => set((s) => (s.inspector ? { inspector: { ...s.inspector, tab } } : {})),
     closeInspector: () => set({ inspector: null }),
     setPage: (page) => set({ page, inspector: null }),
+    toast: (title, kind = "success", detail) => {
+      const id = Date.now() + Math.random();
+      set((s) => ({ toasts: [...s.toasts.slice(-2), { id, kind, title, detail }] }));
+      window.setTimeout(() => get().dismissToast(id), kind === "error" ? 7000 : 4000); // skill: toast-dismiss 3–5 s
+    },
+    dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+    setDraft: (draft) => set({ draft }),
+    setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
     setAppearance: (change) => {
       const appearance = { ...get().appearance, ...change };
       applyAppearance(appearance);
@@ -282,6 +318,7 @@ export const useApp = create<AppState>((set, get) => {
         call("sessions.set_preferences", { project: root(), session: id, ...prefs }),
       );
       await Promise.all([get().refreshView(), get().refreshSessions()]);
+      if (saved !== undefined) get().toast("Session preferences saved", "success", "They apply to the next request.");
       return saved !== undefined;
     },
   };

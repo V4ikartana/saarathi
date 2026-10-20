@@ -122,5 +122,8 @@ def test_error_classification():
     assert classify_error("API Error: 529 overloaded") is ErrorKind.RATE_LIMIT
     assert classify_error("You've hit your usage limit. Upgrade or try again in 3 hours") is ErrorKind.QUOTA_EXHAUSTED
     assert classify_error("Your credit balance is too low") is ErrorKind.QUOTA_EXHAUSTED
+    # Claude Code 2.1.302 on a subscription, 2026-10-20
+    assert classify_error("You've hit your session limit · resets 5:40pm (Asia/Calcutta)") is ErrorKind.QUOTA_EXHAUSTED
+    assert classify_error("Fable 5.1 requires usage credits. Switch to another model") is ErrorKind.QUOTA_EXHAUSTED
     assert classify_error("401 Unauthorized") is ErrorKind.AUTH
     assert classify_error("segfault") is ErrorKind.PROCESS
