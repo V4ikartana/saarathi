@@ -127,6 +127,7 @@ def test_session_lifecycle_through_to_completion(client, repo, tmp_path):
     diff = client.ok("tasks.diff", project=project, run=run_id, task="T-001")
     assert "app/health.py" in {f["path"] for f in diff["files"]} and "def health" in diff["diff"]
     assert client.ok("tasks.logs", project=project, run=run_id, task="T-001")["events"]
+    assert_inspection(client, project, run_id)
 
     done = client.ok("runs.approve", project=project, run=run_id)
     assert done["approved"] == "review" and done["state"] == "COMPLETED"
@@ -135,6 +136,37 @@ def test_session_lifecycle_through_to_completion(client, repo, tmp_path):
     view = client.ok("sessions.get", project=project, session=session["id"])
     assert any(e["kind"] == "review" for e in view["conversation"])
     assert any(e["kind"] == "delegation" for e in view["conversation"]), "agent delegation is visible"
+
+
+def assert_inspection(client, project, run_id):
+    """M3 data: everything the task inspector, timeline, diff viewer and log viewer show comes from these calls."""
+    timeline = client.ok("runs.timeline", project=project, run=run_id)
+    assert [(t["id"], t["depth"]) for t in timeline["tasks"]] == [("T-001", 0), ("T-002", 0)]
+    spans = {a["task_id"]: a for a in timeline["attempts"]}
+    assert set(spans) == {"T-001", "T-002"}
+    assert all(a["outcome"] == "succeeded" and a["finished_at"] >= a["started_at"] for a in spans.values())
+
+    inspected = client.ok("tasks.inspect", project=project, run=run_id, task="T-001")
+    assert inspected["task"]["title"] == "Health endpoint" and inspected["task"]["state"] == "SUCCEEDED"
+    assert inspected["task"]["verification_commands"] and inspected["task"]["allowed_paths"]
+    (attempt,) = inspected["attempts"]
+    assert attempt["result"]["verification"][0]["exit_code"] == 0
+    assert "app/health.py" in attempt["result"]["changed_files"]
+    (decision,) = inspected["decisions"]
+    assert decision["chosen"] and decision["reason"] and decision["decision_id"] == attempt["routing_decision_id"]
+
+    diff = client.ok("tasks.diff", project=project, run=run_id, task="T-001")
+    health = next(f for f in diff["files"] if f["path"] == "app/health.py")
+    assert health["added"] >= 2 and not health["binary"]
+    file = client.ok("tasks.file", project=project, run=run_id, task="T-001", path="app/health.py")
+    assert file["original"] == "" and "def health" in file["modified"], "an added file has no original side"
+    outside = client.call("tasks.file", project=project, run=run_id, task="T-001", path="ui/widget.py")
+    assert outside["error"]["data"]["kind"] == "invalid_params", "only paths in the task's own change are readable"
+    escape = client.call("tasks.file", project=project, run=run_id, task="T-001", path="../../etc/passwd")
+    assert escape["error"]["data"]["kind"] == "invalid_params"
+
+    logs = client.ok("tasks.logs", project=project, run=run_id, task="T-001")["logs"]
+    assert any(log["name"].startswith("attempt-1/verify-") for log in logs), [log["name"] for log in logs]
 
 
 def test_send_is_idempotent_and_one_run_per_project(client, repo, tmp_path):
@@ -148,6 +180,7 @@ def test_send_is_idempotent_and_one_run_per_project(client, repo, tmp_path):
     assert busy["error"]["data"]["kind"] == "project_busy" and a["id"] in busy["error"]["data"]["hint"]
     view = client.ok("sessions.get", project=project, session=a["id"])
     assert [e for e in view["conversation"] if e["kind"] == "message"] and len(view["runs"]) == 1
+    assert view["run_order"] == [first["run_id"]]
 
 
 def test_cancel_interrupts_the_driver(client, repo, tmp_path):

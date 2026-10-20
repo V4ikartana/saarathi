@@ -34,10 +34,12 @@ from saarathi.core.errors import (
     SaarathiError,
 )
 from saarathi.core.states import RUN_TERMINAL, RunState
-from saarathi.git.workspace import GitRepo, data_dir
+from saarathi.git.workspace import GitError, GitRepo, data_dir
 from saarathi.orchestration.engine import Engine
 from saarathi.orchestration.project import META, Project
 from saarathi.routing.router import resolve_lead
+from saarathi.security.redaction import Redactor
+from saarathi.storage.store import utcnow
 
 PROTOCOL = 1
 CANCEL_WAIT_SECONDS = 30.0
@@ -107,6 +109,9 @@ class BridgeService:
             "runs.resume": self.runs_resume,
             "tasks.diff": self.tasks_diff,
             "tasks.logs": self.tasks_logs,
+            "tasks.inspect": self.tasks_inspect,
+            "tasks.file": self.tasks_file,
+            "runs.timeline": self.runs_timeline,
             "models.list": self.models_list,
             "providers.status": self.providers_status,
         }
@@ -260,7 +265,8 @@ class BridgeService:
                     conversation.append({**rendered, "role": "orchestrator"})
             snapshots[run_id] = self._snapshot(p, run_id)
         conversation.sort(key=lambda e: (e["ts"], e.get("seq", 0)))
-        return {"session": jsonable(meta), "conversation": conversation, "runs": snapshots}
+        # JSON objects carry no reliable key order across the Rust shell, so the run order is explicit.
+        return {"session": jsonable(meta), "conversation": conversation, "runs": snapshots, "run_order": runs}
 
     def sessions_send(
         self, project: str, session: str, text: str, idempotency_key: str | None = None, accept_defaults: bool = False
@@ -407,28 +413,128 @@ class BridgeService:
 
     # ------------------------------------------------------------------ tasks, models, providers
 
-    def tasks_diff(self, project: str, run: str, task: str, max_chars: int = 200_000) -> dict[str, Any]:
-        p = self.project(project)
-        record = p.store.get_task(run, task)
-        commit = (record.result or {}).get("commit")
+    def _task_change(self, p: Project, run: str, task: str) -> tuple[str, str] | None:
+        """(base, commit) of the task's accepted change, or None while it has no commit."""
+        commit = (p.store.get_task(run, task).result or {}).get("commit")
         attempts = p.store.attempts(run, task)
         if not commit or not attempts:
+            return None
+        return attempts[-1].base_commit, str(commit)
+
+    def tasks_diff(self, project: str, run: str, task: str, max_chars: int = 200_000) -> dict[str, Any]:
+        p = self.project(project)
+        change = self._task_change(p, run, task)
+        if change is None:
             return {"commit": None, "base": None, "diff": "", "files": []}
-        base = attempts[-1].base_commit
-        files = p.git.git("diff", "--numstat", base, commit).splitlines()
-        stats = [{"added": a, "deleted": d, "path": f} for a, d, f in (line.split("\t", 2) for line in files if line)]
-        return {"commit": commit, "base": base, "diff": p.git.diff(base, commit, max_chars), "files": stats}
+        base, commit = change
+        diff = p.git.diff(base, commit, max_chars)
+        return {"commit": commit, "base": base, "diff": diff, "files": _numstat(p, base, commit)}
+
+    def tasks_file(self, project: str, run: str, task: str, path: str, max_chars: int = 500_000) -> dict[str, Any]:
+        """Both versions of one file the task changed, for a side-by-side diff. Only paths in the task's diff."""
+        p = self.project(project)
+        change = self._task_change(p, run, task)
+        if change is None:
+            raise BridgeError("not_found", f"{task} has no committed change yet")
+        base, commit = change
+        entry = next((f for f in _numstat(p, base, commit) if f["path"] == path), None)
+        if entry is None:
+            raise BridgeError("invalid_params", f"{path} is not part of {task}'s change")
+        if entry["binary"]:
+            return {"path": path, "binary": True, "original": "", "modified": "", "truncated": False}
+
+        def show(rev: str) -> str:
+            try:
+                return p.git.git("show", f"{rev}:{path}")
+            except GitError:  # added or deleted in this change
+                return ""
+
+        original, modified = show(base), show(commit)
+        truncated = len(original) > max_chars or len(modified) > max_chars
+        return {
+            "path": path,
+            "binary": False,
+            "original": original[:max_chars],
+            "modified": modified[:max_chars],
+            "truncated": truncated,
+        }
+
+    def tasks_inspect(self, project: str, run: str, task: str) -> dict[str, Any]:
+        """Everything recorded about one task: its packet, each attempt with its assessment, each routing decision."""
+        p = self.project(project)
+        record = p.store.get_task(run, task)
+        return {
+            "task": {
+                **jsonable(record.packet),
+                "state": record.state,
+                "attempts": record.attempts,
+                "failures": record.failures,
+                "branch": record.branch,
+                "worktree": record.worktree,
+                "blocked_reason": record.blocked_reason,
+                "result": record.result,
+                "updated_at": record.updated_at,
+            },
+            "attempts": [jsonable(a) for a in p.store.attempts(run, task)],
+            "decisions": [jsonable(d) for d in p.store.decisions(run, task)],
+        }
+
+    def runs_timeline(self, project: str, run: str) -> dict[str, Any]:
+        """Tasks with their dependency depth and every attempt's span: the data behind the DAG timeline."""
+        p = self.project(project)
+        record = p.store.get_run(run)
+        tasks = p.store.tasks(run)
+        deps = {t.id: list(t.packet.dependencies) for t in tasks}
+        depth: dict[str, int] = {}
+
+        def level(tid: str, seen: frozenset[str] = frozenset()) -> int:
+            if tid not in depth:
+                parents = [d for d in deps.get(tid, []) if d in deps and d not in seen]
+                depth[tid] = 1 + max((level(d, seen | {tid}) for d in parents), default=-1)
+            return depth[tid]
+
+        return {
+            "run_id": run,
+            "state": record.state,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "now": utcnow(),
+            "tasks": [
+                {
+                    "id": t.id,
+                    "title": t.packet.title,
+                    "state": t.state,
+                    "dependencies": deps[t.id],
+                    "depth": level(t.id),
+                }
+                for t in tasks
+            ],
+            "attempts": [
+                {
+                    "id": a.id,
+                    "task_id": a.task_id,
+                    "number": a.number,
+                    "status": a.status,
+                    "outcome": a.outcome,
+                    "adapter": a.adapter,
+                    "model": a.model,
+                    "started_at": a.started_at,
+                    "finished_at": a.finished_at,
+                }
+                for a in p.store.attempts(run)
+            ],
+        }
 
     def tasks_logs(self, project: str, run: str, task: str, max_chars: int = 100_000) -> dict[str, Any]:
         p = self.project(project)
         root = p.logs / run / task
+        redact = Redactor()  # logs are redacted when written; this catches anything a provider wrote itself
         logs = []
         if root.exists():
             for path in sorted(root.rglob("*.log")):
-                text = path.read_text(encoding="utf-8", errors="replace")
-                logs.append(
-                    {"name": str(path.relative_to(root)), "text": text[-max_chars:], "truncated": len(text) > max_chars}
-                )
+                text = redact(path.read_text(encoding="utf-8", errors="replace"))
+                name = path.relative_to(root).as_posix()
+                logs.append({"name": name, "text": text[-max_chars:], "truncated": len(text) > max_chars})
         return {"logs": logs, "events": [jsonable(e) for e in p.store.events(run, task_id=task)]}
 
     def driver_log(self, project: str, run: str, max_chars: int = 50_000) -> str:
@@ -445,6 +551,24 @@ class BridgeService:
             "health": [jsonable(h) for h in p.store.provider_health().values()],
             "models": self.models_list(project),
         }
+
+
+def _numstat(p: Project, base: str, commit: str) -> list[dict[str, Any]]:
+    files = []
+    for line in p.git.git("diff", "--numstat", base, commit).splitlines():
+        if not line:
+            continue
+        added, deleted, path = line.split("\t", 2)
+        binary = added == "-"
+        files.append(
+            {
+                "path": path,
+                "added": None if binary else int(added),
+                "deleted": None if binary else int(deleted),
+                "binary": binary,
+            }
+        )
+    return files
 
 
 def error_payload(exc: Exception) -> tuple[str, str, str | None]:
