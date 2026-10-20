@@ -300,11 +300,13 @@ providers:
       isolate_user_config: true   # pass --ignore-user-config (auth is still read by Codex itself)
     models:
       # "default" means the model selected by your Codex configuration; Codex does not report which.
+      # Other models are discovered from `codex debug models` (tier unknown). Declare one here to give it a tier.
       - {id: default, reasoning_tier: unknown}
   antigravity-cli:
     enabled: true
     binary: null              # null = look up `agy` on PATH
     models:
-      # Add slugs from `agy models` (your account's list) to route to them explicitly.
+      # Your account's models are discovered from `agy models` (tier unknown). Declare one here to give it a tier.
       - {id: default, reasoning_tier: unknown}
+    # options: {discover_models: false}   # list only the models declared here (also for codex-cli)
 """

@@ -51,7 +51,7 @@ export function SessionControls() {
           <option value="">Workers: chosen by the router</option>
           {workers.map((m) => (
             <option key={m.candidate} value={m.candidate}>
-              {m.candidate}{m.available ? "" : " (unavailable)"}{m.provider_limit ? " (limited)" : ""}
+              {m.candidate}{m.source.startsWith("discovered") ? " · discovered" : ""}{m.available ? "" : " (unavailable)"}{m.provider_limit ? " (limited)" : ""}
             </option>
           ))}
         </select>

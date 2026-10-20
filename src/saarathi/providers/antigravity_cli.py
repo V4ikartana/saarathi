@@ -28,6 +28,7 @@ from typing import Any
 from saarathi.core.contracts import Usage
 from saarathi.providers.base import (
     Check,
+    DiscoveredModel,
     ErrorKind,
     Invocation,
     InvocationMode,
@@ -61,14 +62,20 @@ DENIED_RETRY_NOTE = (
 )
 
 
-def parse_models(text: str) -> list[str]:
-    """Slugs from ``agy models`` output (``<slug><TAB><display name>`` per line)."""
-    slugs = []
+def parse_model_entries(text: str) -> list[DiscoveredModel]:
+    """Models from ``agy models`` output (``<slug><TAB><display name>`` per line)."""
+    found = []
     for line in text.splitlines():
-        slug = line.split("\t", 1)[0].strip()
+        slug, _, name = line.partition("\t")
+        slug = slug.strip()
         if slug and re.fullmatch(r"[a-z0-9][a-z0-9._-]*", slug):
-            slugs.append(slug)
-    return slugs
+            found.append(DiscoveredModel(slug, name.strip() or None))
+    return found
+
+
+def parse_models(text: str) -> list[str]:
+    """Slugs from ``agy models`` output."""
+    return [m.id for m in parse_model_entries(text)]
 
 
 class AntigravityCliAdapter(ProviderAdapter):
@@ -112,7 +119,11 @@ class AntigravityCliAdapter(ProviderAdapter):
         )
 
         code, out, err = run_quick([binary, "models"], env, timeout=60)
-        self.offered_models = parse_models(out) if code == 0 else []
+        entries = parse_model_entries(out) if code == 0 else []
+        self.offered_models = [m.id for m in entries]
+        if entries and self.discovery_enabled():
+            result.discovered_models = [m for m in entries if m.id != "default"]
+            result.discovery_source = "agy models"
         signed_in = code == 0 and bool(self.offered_models)
         detail = f"{len(self.offered_models)} models offered" if signed_in else (err or out).strip()[-200:]
         result.checks.append(Check("sign-in (agy models)", signed_in, detail or "no models listed"))

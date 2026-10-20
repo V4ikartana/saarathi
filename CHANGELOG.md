@@ -77,6 +77,10 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   provider check, engine details). New bridge methods: `sessions.set_preferences`, `policy.get`, `usage.summary`. The
   bridge reloads a project's policy when `policies.yaml` changes.
 - Live check of the desktop app with Claude Code and Codex CLI (`docs/phase0/evidence/live-desktop-claude-codex.md`).
+- Model discovery: Codex CLI models from `codex debug models` (picker-visible only) and Antigravity models from
+  `agy models` are listed after the declared models, labelled as discovered with an unknown reasoning tier. A
+  declaration in the policy always wins, any discovery failure falls back to the declared models with a notice, and
+  `options.discover_models: false` turns it off per adapter.
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now

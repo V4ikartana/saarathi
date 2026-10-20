@@ -197,7 +197,7 @@ export function PermissionsPage() {
                     <div className="flex items-center gap-2 text-[13px]">
                       <Mono>{w.adapter}</Mono><span className="text-faint">{w.provider}</span>
                       {!w.enabled && <span className="rounded bg-raised px-1.5 text-[11px] text-faint">disabled</span>}
-                      <span className="ml-auto text-[11px] text-faint">models: {w.models.join(", ")}</span>
+                      <span className="ml-auto text-[11px] text-faint">declared models: {w.models.join(", ")}</span>
                     </div>
                     <p className="mt-1 text-[12px] text-muted">{w.isolation}</p>
                     {w.worker_command ? (

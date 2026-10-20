@@ -18,6 +18,7 @@ from saarathi.core.contracts import (
     ModelDescriptor,
     ModelMetadata,
     ModelPricing,
+    ReasoningTier,
     Transport,
     Usage,
 )
@@ -77,6 +78,14 @@ class Check:
     detail: str
 
 
+@dataclass(frozen=True)
+class DiscoveredModel:
+    """A model the provider's own CLI listed for this account. Not a declaration: its tier is unknown."""
+
+    id: str
+    display_name: str | None = None
+
+
 @dataclass
 class ProbeResult:
     adapter: str
@@ -90,6 +99,8 @@ class ProbeResult:
     checks: list[Check] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
     test_only: bool = False
+    discovered_models: list[DiscoveredModel] = field(default_factory=list)
+    discovery_source: str | None = None  # the command that listed them, e.g. "codex debug models"
     checked_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat(timespec="seconds"))
 
 
@@ -163,31 +174,56 @@ class ProviderAdapter(ABC):
     @abstractmethod
     async def invoke(self, inv: Invocation) -> InvocationResult: ...
 
+    def discovery_enabled(self) -> bool:
+        """Model discovery is on unless the policy sets ``options.discover_models: false`` for this adapter."""
+        return bool(self.config.options.get("discover_models", True))
+
     def list_models(self) -> list[ModelDescriptor]:
+        """Declared models first, then models the CLI discovered for this account that are not declared.
+
+        A discovered model's reasoning tier is unknown until the policy declares it, so routing never assumes it is
+        strong; a person can still prefer or pin it.
+        """
         probe = self.probe()
         out: list[ModelDescriptor] = []
-        for declared in self.config.models:
-            caps = self.base_capabilities.model_copy(update={"reasoning_tier": declared.reasoning_tier})
-            out.append(
-                ModelDescriptor(
-                    id=declared.id,
-                    provider=self.provider,
-                    adapter=self.name,
-                    transport=self.transport,
-                    available=probe.available and self.config.enabled,
-                    unavailable_reason=None if probe.available else probe.reason,
-                    capabilities=caps,
-                    constraints=ModelConstraints(max_parallel=declared.max_parallel),
-                    # Unknown metering (no auth info) is treated as metered: never assume free.
-                    pricing=ModelPricing(metered=probe.metered is not False),
-                    metadata=ModelMetadata(
-                        source=declared.source,
-                        checked_at=datetime.fromisoformat(probe.checked_at),
-                        notes=f"{self.type_name} {probe.version or 'unknown version'}; auth={probe.auth_method}",
-                    ),
+        notes = f"{self.type_name} {probe.version or 'unknown version'}; auth={probe.auth_method}"
+        for d in self.config.models:
+            out.append(self._descriptor(probe, d.id, d.reasoning_tier, d.max_parallel, d.source, notes))
+        if self.discovery_enabled():
+            declared_ids = {d.id for d in self.config.models}
+            for found in probe.discovered_models:
+                if found.id in declared_ids:
+                    continue
+                label = f"{found.display_name}; " if found.display_name else ""
+                out.append(
+                    self._descriptor(
+                        probe,
+                        found.id,
+                        ReasoningTier.UNKNOWN,
+                        1,
+                        f"discovered: {probe.discovery_source or 'provider CLI'}",
+                        f"{label}{notes}",
+                    )
                 )
-            )
         return out
+
+    def _descriptor(
+        self, probe: ProbeResult, model_id: str, tier: ReasoningTier, max_parallel: int, source: str, notes: str
+    ) -> ModelDescriptor:
+        caps = self.base_capabilities.model_copy(update={"reasoning_tier": tier})
+        return ModelDescriptor(
+            id=model_id,
+            provider=self.provider,
+            adapter=self.name,
+            transport=self.transport,
+            available=probe.available and self.config.enabled,
+            unavailable_reason=None if probe.available else probe.reason,
+            capabilities=caps,
+            constraints=ModelConstraints(max_parallel=max_parallel),
+            # Unknown metering (no auth info) is treated as metered: never assume free.
+            pricing=ModelPricing(metered=probe.metered is not False),
+            metadata=ModelMetadata(source=source, checked_at=datetime.fromisoformat(probe.checked_at), notes=notes),
+        )
 
 
 def preview_invocation(*, allow_network: bool, allowed_commands: Sequence[str]) -> Invocation:

@@ -3,6 +3,7 @@
 Verified against codex-cli 0.162.0-alpha.2 (see docs/phase0/feasibility-report.md):
 ``--json`` JSONL events, ``--output-schema`` + ``-o`` for the structured final message,
 ``--sandbox read-only|workspace-write``, ``--ephemeral``, ``--ignore-user-config``, prompt on stdin via ``-``.
+Model discovery reads ``codex debug models`` (0.163.0): a debug command, so it is optional and fails safe.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Any
 from saarathi.core.contracts import Usage
 from saarathi.providers.base import (
     Check,
+    DiscoveredModel,
     ErrorKind,
     Invocation,
     InvocationMode,
@@ -39,6 +41,30 @@ REQUIRED_EXEC_FLAGS = (
     "--ignore-user-config",
 )
 ENV_NAMES = ("CODEX_HOME",)
+
+
+def parse_codex_models(text: str) -> list[DiscoveredModel]:
+    """Picker-visible models from ``codex debug models`` JSON (``{"models": [{"slug", "display_name",
+    "visibility", "priority"}]}``), in Codex's own order. Hidden models are left out. Raises ValueError if the shape
+    is not recognised."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("unrecognised output from `codex debug models`") from exc
+    entries = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError("unrecognised output from `codex debug models`")
+    found = []
+    for entry in sorted((e for e in entries if isinstance(e, dict)), key=lambda e: e.get("priority", 1_000)):
+        slug = entry.get("slug")
+        if entry.get("visibility") != "list" or not isinstance(slug, str):
+            continue
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", slug):
+            name = entry.get("display_name")
+            found.append(DiscoveredModel(slug, name if isinstance(name, str) else None))
+    if not found:
+        raise ValueError("`codex debug models` listed no models")
+    return found
 
 
 class CodexCliAdapter(ProviderAdapter):
@@ -93,6 +119,9 @@ class CodexCliAdapter(ProviderAdapter):
             result.auth_method, result.metered = "unknown", None
         result.checks.append(Check("login", code == 0, status.splitlines()[0][:200] if status else "no output"))
 
+        if code == 0 and self.discovery_enabled():
+            self._discover(binary, env, result)
+
         failed = [c.name for c in result.checks if not c.ok]
         result.available = not failed
         if failed:
@@ -105,6 +134,18 @@ class CodexCliAdapter(ProviderAdapter):
         if result.version and "alpha" in result.version:
             result.notices.append(f"Codex {result.version} is a pre-release build; flags may change.")
         return result
+
+    def _discover(self, binary: str, env: dict[str, str], result: ProbeResult) -> None:
+        """Models Codex offers in its own picker, from ``codex debug models``. A debug command, not a stable
+        interface: any failure leaves only the declared models, with a notice saying why."""
+        code, out, err = run_quick([binary, "debug", "models"], env, timeout=30)
+        try:
+            if code != 0:
+                raise ValueError((err or out).strip()[-200:] or f"exit {code}")
+            result.discovered_models = parse_codex_models(out)
+            result.discovery_source = "codex debug models"
+        except ValueError as exc:
+            result.notices.append(f"Model discovery unavailable ({exc}); only declared Codex models are listed.")
 
     def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
         if self._binary() is None:
