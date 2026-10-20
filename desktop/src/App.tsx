@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Composer, RunBar } from "./components/Composer";
 import { Conversation } from "./components/Conversation";
 import { ExecutionPanel } from "./components/ExecutionPanel";
+import { PermissionsPage, SettingsPage, UsagePage } from "./components/Pages";
 import { ProjectPicker } from "./components/ProjectPicker";
 import { RunTimeline } from "./components/RunTimeline";
 import { Sidebar } from "./components/Sidebar";
@@ -27,7 +28,7 @@ function NoticeBar() {
 }
 
 export default function App() {
-  const { project, bridgeState, connect, view, activeSessionId, centerTab, setCenterTab } = useApp();
+  const { project, bridgeState, connect, view, activeSessionId, centerTab, setCenterTab, page } = useApp();
 
   useEffect(() => {
     void connect();
@@ -71,8 +72,10 @@ export default function App() {
           <Sidebar />
           <main className="flex min-w-0 flex-1 flex-col">
             <header className="flex h-11 items-center gap-3 border-b border-line px-5 text-[13px]">
-              <span className="min-w-0 truncate font-medium">{view?.session.title ?? (activeSessionId ? "" : "Select or create a session")}</span>
-              {activeSessionId && (
+              <span className="min-w-0 truncate font-medium">
+                {page !== "session" ? project.name : (view?.session.title ?? (activeSessionId ? "" : "Select or create a session"))}
+              </span>
+              {activeSessionId && page === "session" && (
                 <nav className="ml-2 flex gap-0.5 rounded-md bg-raised p-0.5 text-[12px]" aria-label="View">
                   {(["conversation", "timeline"] as const).map((tab) => (
                     <button key={tab} type="button" onClick={() => setCenterTab(tab)}
@@ -84,7 +87,10 @@ export default function App() {
               )}
               {bridgeState !== "ready" && <span className="ml-auto text-[12px] text-warn">Reconnecting to the engine…</span>}
             </header>
-            {!activeSessionId ? (
+            {page === "usage" ? <UsagePage />
+              : page === "permissions" ? <PermissionsPage />
+              : page === "settings" ? <SettingsPage />
+              : !activeSessionId ? (
               <div className="grid flex-1 place-items-center text-[13px] text-faint">Create a session to start.</div>
             ) : centerTab === "timeline" ? (
               <>
@@ -99,7 +105,7 @@ export default function App() {
               </>
             )}
           </main>
-          <ExecutionPanel />
+          {page === "session" && <ExecutionPanel />}
           <TaskInspector />
         </div>
       )}

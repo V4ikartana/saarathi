@@ -2,7 +2,8 @@
 import { create } from "zustand";
 
 import { BridgeError, call, idempotencyKey } from "../lib/bridge";
-import type { BridgeInfo, ProjectInfo, SessionSummary, SessionView } from "../lib/types";
+import { applyTheme, loadDefaultPreferences, loadTheme, type Theme } from "../lib/theme";
+import type { BridgeInfo, ProjectInfo, SessionPreferences, SessionSummary, SessionView } from "../lib/types";
 
 const RECENT_KEY = "saarathi.recentProjects";
 
@@ -22,6 +23,8 @@ function saveRecent(paths: string[]): void {
     // Recent projects are a convenience; losing them is harmless.
   }
 }
+
+export type Page = "session" | "usage" | "permissions" | "settings";
 
 export type InspectorTab = "overview" | "attempts" | "routing" | "changes" | "logs";
 
@@ -53,6 +56,8 @@ interface AppState {
   eventTick: number;
   centerTab: "conversation" | "timeline";
   inspector: Inspector | null;
+  page: Page;
+  theme: Theme;
 
   connect: () => Promise<void>;
   openProject: (path: string) => Promise<void>;
@@ -78,6 +83,9 @@ interface AppState {
   openTask: (runId: string, taskId: string, tab?: InspectorTab) => void;
   setInspectorTab: (tab: InspectorTab) => void;
   closeInspector: () => void;
+  setPage: (page: Page) => void;
+  setTheme: (theme: Theme) => void;
+  setPreferences: (prefs: SessionPreferences) => Promise<boolean>;
 }
 
 export const useApp = create<AppState>((set, get) => {
@@ -112,6 +120,8 @@ export const useApp = create<AppState>((set, get) => {
     eventTick: 0,
     centerTab: "conversation",
     inspector: null,
+    page: "session",
+    theme: loadTheme(),
 
     connect: async () => {
       const info = await act("connect", () => call<BridgeInfo>("system.initialize", { client: "saarathi-desktop", protocol: 1 }));
@@ -125,7 +135,7 @@ export const useApp = create<AppState>((set, get) => {
       if (!info) return;
       const recent = [info.root, ...get().recent.filter((p) => p !== info.root)];
       saveRecent(recent);
-      set({ project: info, recent, activeSessionId: null, view: null, sessions: [], inspector: null });
+      set({ project: info, recent, activeSessionId: null, view: null, sessions: [], inspector: null, page: "session" });
       if (info.initialized) {
         await call("subscribe", { project: info.root }).catch(() => undefined);
         await get().refreshSessions();
@@ -166,13 +176,20 @@ export const useApp = create<AppState>((set, get) => {
 
     selectSession: async (id) => {
       // Switching only changes what is displayed; running drivers are untouched.
-      set({ activeSessionId: id, view: null, inspector: null });
+      set({ activeSessionId: id, view: null, inspector: null, page: "session" });
       if (id) await get().refreshView();
     },
 
     createSession: async (title = "New session") => {
       const created = await act("create", () => call<SessionSummary>("sessions.create", { project: root(), title }));
       if (!created) return;
+      const defaults = loadDefaultPreferences();
+      if (defaults.approvals !== "ask" || defaults.model) {
+        // The policy may refuse a default chosen under another project's policy; the session then keeps "ask".
+        await act("preferences", () =>
+          call("sessions.set_preferences", { project: root(), session: created.id, ...defaults }),
+        );
+      }
       await get().refreshSessions();
       await get().selectSession(created.id);
     },
@@ -252,5 +269,19 @@ export const useApp = create<AppState>((set, get) => {
       set((s) => ({ inspector: { runId, taskId, tab: tab ?? s.inspector?.tab ?? "overview" } })),
     setInspectorTab: (tab) => set((s) => (s.inspector ? { inspector: { ...s.inspector, tab } } : {})),
     closeInspector: () => set({ inspector: null }),
+    setPage: (page) => set({ page, inspector: null }),
+    setTheme: (theme) => {
+      applyTheme(theme);
+      set({ theme });
+    },
+    setPreferences: async (prefs) => {
+      const id = get().activeSessionId;
+      if (!id) return false;
+      const saved = await act("preferences", () =>
+        call("sessions.set_preferences", { project: root(), session: id, ...prefs }),
+      );
+      await Promise.all([get().refreshView(), get().refreshSessions()]);
+      return saved !== undefined;
+    },
   };
 });

@@ -35,6 +35,7 @@ export interface SessionSummary {
   run_count: number;
   last_run: string | null;
   last_state: RunState | null;
+  preferences: Partial<SessionPreferences>;
 }
 
 export interface ConversationEntry {
@@ -279,4 +280,113 @@ export interface Timeline {
   now: string;
   tasks: { id: string; title: string; state: string; dependencies: string[]; depth: number }[];
   attempts: Pick<Attempt, "id" | "task_id" | "number" | "status" | "outcome" | "adapter" | "model" | "started_at" | "finished_at">[];
+}
+
+// ---- M4: preferences, policy, usage, providers (sessions.set_preferences, policy.get, usage.summary, models.list)
+
+export type ApprovalPreset = "ask" | "auto_safe" | "bypass";
+export type ModelMode = "prefer" | "pin";
+
+export interface SessionPreferences {
+  approvals: ApprovalPreset;
+  model: string | null;
+  model_mode: ModelMode;
+}
+
+export interface ModelInfo {
+  candidate: string;
+  provider: string;
+  adapter: string;
+  model: string;
+  transport: string;
+  available: boolean;
+  unavailable_reason: string | null;
+  reasoning_tier: string;
+  metered: boolean;
+  source: string;
+  provider_limit: string | null;
+}
+
+export interface PresetInfo {
+  id: ApprovalPreset;
+  label: string;
+  description: string;
+  allowed: boolean;
+}
+
+export interface WorkerPolicy {
+  adapter: string;
+  provider: string;
+  enabled: boolean;
+  models: string[];
+  isolation: string;
+  worker_command: string | null;
+}
+
+export interface PolicyView {
+  path: string;
+  mode: string;
+  lead: string;
+  lead_substitute: string | null;
+  approvals: { max_preset: ApprovalPreset; presets: PresetInfo[]; never_automatic: string[] };
+  permissions: Record<string, boolean>;
+  routing: {
+    allowed_providers: string[];
+    allowed_models: string[];
+    denied_models: string[];
+    max_parallel_workers: number;
+    escalate_after_failures: number;
+    spread_across_providers: boolean;
+  };
+  integrations: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  workers: WorkerPolicy[];
+}
+
+export interface UsageRow {
+  calls: number;
+  succeeded: number;
+  failed: number;
+  other: number;
+  input_tokens: number;
+  cached_input_tokens: number;
+  output_tokens: number;
+  unreported: number;
+  cost_usd: number | null;
+  cost_reported: number;
+  cost_is_estimate: boolean;
+  duration_s: number;
+}
+
+export interface UsageSummary {
+  generated_at: string;
+  quota_note: string;
+  totals: UsageRow;
+  by_model: (UsageRow & { role: "worker" | "lead"; candidate: string; adapter: string; model: string })[];
+  runs: (UsageRow & { run_id: string; state: RunState; created_at: string })[];
+  limits: { adapter: string; state: string; until: string; reason: string }[];
+}
+
+export interface DoctorReport {
+  adapters: {
+    name: string;
+    type: string;
+    provider: string;
+    available: boolean;
+    version: string | null;
+    auth_method: string | null;
+    metered: boolean | null;
+    reason: string | null;
+    test_only: boolean;
+    checks: { name: string; ok: boolean; detail: string }[];
+    notices: string[];
+  }[];
+  lead: string | null;
+  lead_problems: string[];
+}
+
+export interface BridgeDiagnostics {
+  running: boolean;
+  command: string;
+  stderr_tail: string[] | string;
 }

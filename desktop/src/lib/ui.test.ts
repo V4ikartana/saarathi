@@ -35,3 +35,11 @@ describe("latest run", () => {
     expect(latestRun(null)).toBeUndefined();
   });
 });
+
+describe("session preferences", () => {
+  it("fills in what an older session never stored", async () => {
+    const { currentPreferences } = await import("../components/SessionControls");
+    expect(currentPreferences({})).toEqual({ approvals: "ask", model: null, model_mode: "prefer" });
+    expect(currentPreferences({ approvals: "bypass" }).approvals).toBe("bypass");
+  });
+});

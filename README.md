@@ -62,6 +62,8 @@ examples/health-widget/demo.sh codex-only       # hosts without Claude Code
 | Command | Purpose |
 |---|---|
 | `saarathi run BRIEF [--non-interactive] [--accept-defaults]` | Start a run |
+| `saarathi run BRIEF --approvals auto_safe` / `--prefer-model A:M` / `--pin-model A:M` | Delegate plan and review approval within `approvals.max_preset`; prefer or pin a worker model (ADR-0014) |
+| `saarathi usage [--json]` | Tokens and costs per model and run, as providers reported them |
 | `saarathi status` / `tasks` | Run and task state (`--json` available) |
 | `saarathi answer Q1 "..."` | Answer a clarification question |
 | `saarathi approve` | Approve the plan, an escalation's ADR change, or the final review |
@@ -86,7 +88,9 @@ Exit codes: `0` done · `1` error · `2` usage/config · `3` waiting for you (qu
 
 [`desktop/`](desktop/) holds Saarathi Desktop (Tauri 2 + React), a control layer over the same engine. It lets you
 work through conversation sessions, watch live run events, approve plans and reviews, stop, cancel or resume runs, and
-inspect every task: attempts, verification evidence, routing decisions, diffs, logs and a run timeline.
+inspect every task: attempts, verification evidence, routing decisions, diffs, logs and a run timeline. Sessions can
+prefer or pin a worker model and choose an approval preset within the policy, and the app shows usage and the effective
+permissions of every worker.
 It talks to the engine only through `saarathi bridge --stdio` (ADR-0013), and runs keep going when the window closes.
 It is a v0.1 foundation: no installers yet. See [desktop/README.md](desktop/README.md).
 

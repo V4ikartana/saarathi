@@ -92,6 +92,9 @@ JSON-RPC 2.0, one JSON object per line on stdout. stderr is for logs only. Every
 | `tasks.file {run, task, path}` | Base and committed versions of one file, for a side-by-side diff; only paths in the task's own diff |
 | `runs.timeline {run}` | Tasks with dependency depth and every attempt's start and end, for the DAG timeline |
 | `models.list {project}` / `providers.status {project}` | Catalogue, availability, cooldowns |
+| `sessions.set_preferences {session, approvals, model, model_mode}` | Store a session's preset and worker model after the policy accepts them; applied to its next runs (ADR-0014) |
+| `policy.get {project}` | Effective policy for the permission screen: preset ceiling, never-automatic list, each worker's containment and exact command line |
+| `usage.summary {project}` | Provider-reported tokens and costs per model and run, active provider limits; no quotas |
 | `subscribe {project}` / `unsubscribe` | Start or stop `events/appended` notifications |
 
 Errors use JSON-RPC codes plus `data.kind`: `invalid_params`, `not_found`, `project_busy`, `invalid_state`,
@@ -105,18 +108,24 @@ returns the first result, so a double click or replay never starts two runs.
 - *Stop:* graceful pause.
 - *Cancel:* interrupt and cancel. Worktrees and branches are kept, as in the CLI.
 
-## 5. Later backend additions (Phases 3–4)
+## 5. Backend additions for the desktop (Phases 3–4)
 
-- **Approval presets** mapped to a new policy section (`approvals.plan` and `approvals.review`: manual | auto):
-  - *Ask before actions:* both manual.
-  - *Auto-approve safe actions:* auto-approve a plan only after it passes policy checks; review stays manual.
-  - *Bypass supported approvals:* plan and review auto.
+- **Inspection** (M3): `tasks.inspect`, `tasks.file` and `runs.timeline` read existing records; `tasks.logs` re-redacts.
+- **Approval presets and model preferences** (M4, [ADR-0014](../architecture/decisions/ADR-0014-approval-presets-and-model-preferences.md)):
+  run controls recorded at run start, capped by the policy's `approvals.max_preset`. Presets cover only the plan
+  approval and the final review:
+  - *Ask before actions* (`ask`): both manual.
+  - *Auto-approve safe actions* (`auto_safe`): a plan whose tasks are all low or medium risk and use no integrations
+    starts on its own; the final review stays manual.
+  - *Bypass supported approvals* (`bypass`): any plan that passed policy checks starts, and an approving lead review
+    with passing integration checks completes the run.
 
-  Never automatic in any preset: escalation ADR changes, external side effects, cross-provider data transfer,
-  identity approvals and lesson promotion. Provider permission modes are not loosened by any preset.
-- **Provider and model preferences:** a per-session `preferred` candidate (a score bonus) and `pinned` candidate (a
-  filter to that candidate), both applied after hard filters, so a pin can never make an ineligible model eligible.
-- `tasks.diff` and `tasks.logs` already have their data on disk and only need bridge methods.
+  Never automatic in any preset: escalation ADR changes, integration identity and account selections, external side
+  effects, cross-provider data transfer and lesson promotion. Provider permission modes are not loosened by any preset.
+- **Worker model preferences:** *prefer* (wins whenever eligible and free, waived after it fails the task) or *pin*
+  (the only candidate; tasks wait if it is ineligible). Both act after the hard filters, so neither can make an
+  ineligible model eligible.
+- **Usage:** per-attempt usage plus new `lead.usage` events, aggregated by `usage.summary` and `saarathi usage`.
 
 ## 6. Milestones
 
@@ -124,7 +133,10 @@ Status (2026-10-20): **M1 done** (bridge with end-to-end tests). **M2 done**: ve
 real app on macOS (open repo → session → request → plan approval → execution → review → completion → restart
 restores the session). **M3 done**: task inspector, run timeline, Monaco diffs and xterm.js logs, checked in the real
 app on macOS against a completed run and a run with a dependency chain, a retried task that failed verification and a
-blocked task (fake providers). Windows and Linux are compile- and test-checked in CI only.
+blocked task (fake providers). **M4 done**: approval presets and model preferences in the engine (ADR-0014), session
+controls, permissions, usage and settings pages, checked in the real app on macOS (an `auto_safe` run with a pinned
+worker started without a manual plan approval and stopped at the final review). Windows and Linux are compile- and
+test-checked in CI only.
 
 | # | Milestone | Validated by |
 |---|---|---|

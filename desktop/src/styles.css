@@ -18,6 +18,19 @@
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
+/* Light: the system's choice unless the user forced dark, or always when the user forced light. */
+:root.light {
+  --color-bg: #f7f7f5;
+  --color-panel: #ffffff;
+  --color-raised: #f1f1ee;
+  --color-line: #e2e2dd;
+  --color-ink: #17191c;
+  --color-muted: #5b6270;
+  --color-faint: #8a909b;
+  --color-accent: #b9771a;
+  --color-accent-ink: #ffffff;
+}
+
 @media (prefers-color-scheme: light) {
   :root:not(.dark) {
     --color-bg: #f7f7f5;

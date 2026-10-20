@@ -67,6 +67,15 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
   task's change and an xterm.js log viewer. New read-only bridge methods: `tasks.inspect`, `tasks.file` (only paths
   in the task's own diff) and `runs.timeline`; `tasks.logs` re-redacts on read. Monaco and xterm.js are bundled
   locally (no network under the CSP).
+- Approval presets and model preferences (ADR-0014): `ask`, `auto_safe` and `bypass`, capped by the new policy field
+  `approvals.max_preset` (default `auto_safe`); escalations, integration approvals, transfers and lessons are never
+  automatic. Workers can be preferred or pinned per run, after the routing hard filters. CLI: `saarathi run
+  --approvals --prefer-model --pin-model` and `saarathi usage`. Lead calls record `lead.usage` events.
+- Desktop M4: per-session approval preset and worker model controls, a permissions page (policy ceiling, what is never
+  automatic, each worker's containment and its exact command line), a usage page (provider-reported tokens and costs
+  per model and run, active provider limits, no invented quotas) and settings (theme, defaults for new sessions,
+  provider check, engine details). New bridge methods: `sessions.set_preferences`, `policy.get`, `usage.summary`. The
+  bridge reloads a project's policy when `policies.yaml` changes.
 
 ### Fixed
 - Desktop: cancelling a run on Windows timed out, because a detached driver cannot receive CTRL_BREAK. Drivers now

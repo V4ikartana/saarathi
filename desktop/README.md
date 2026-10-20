@@ -5,11 +5,11 @@ action goes through `saarathi bridge --stdio` (JSON-RPC, protocol 1, no network 
 [ADR-0013](../docs/architecture/decisions/ADR-0013-desktop-bridge.md) and
 [the architecture](../docs/desktop/architecture.md)).
 
-> **Status: v0.1 (milestones M1–M3).** Open a repository, manage sessions, send a request, watch real engine events
+> **Status: v0.1 (milestones M1–M4).** Open a repository, manage sessions, send a request, watch real engine events
 > stream in, answer the lead's questions, approve the plan and final review, stop, cancel and resume runs, and see
 > sessions restored after a restart. Inspect any task (attempts, verification evidence, routing decisions, Monaco
-> diffs, xterm.js logs) and follow the run on a timeline. Provider and model controls, approval presets and packaging
-> come in M4–M5.
+> diffs, xterm.js logs) and follow the run on a timeline. Choose a session's approval preset and worker model, review
+> the project's permissions, and see usage. Packaging comes in M5.
 
 ## Requirements
 
@@ -52,5 +52,8 @@ The engine side of the desktop app (sessions, runs, cancellation, restart and re
   cancelled.
 - The task inspector, timeline, diffs and logs are read-only views of what the engine recorded. A diff shows the
   task's committed change; while the task has not passed verification it is marked as not accepted.
+- A session's approval preset and model apply to its next request. The engine checks both against the policy
+  (`approvals.max_preset`, routing filters); the app never approves or routes anything itself.
+- Usage shows only what providers reported. No supported CLI reports remaining quota, so the app shows none.
 - Everything shown comes from the engine's records and events. The app never invents progress or reasoning, and it does
   not stream model text (the provider adapters return final results).

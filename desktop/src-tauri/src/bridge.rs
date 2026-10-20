@@ -27,6 +27,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "sessions.restore",
     "sessions.get",
     "sessions.send",
+    "sessions.set_preferences",
     "runs.status",
     "runs.events",
     "runs.approve",
@@ -41,6 +42,8 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "tasks.file",
     "models.list",
     "providers.status",
+    "policy.get",
+    "usage.summary",
     "subscribe",
     "unsubscribe",
 ];

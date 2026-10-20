@@ -1,13 +1,19 @@
-import { Archive, FolderGit2, MessageSquarePlus, Pencil, Search } from "lucide-react";
+import { Archive, BarChart3, FolderGit2, MessageSquarePlus, Pencil, Search, Settings, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "../lib/ui";
-import { useApp } from "../store/app";
+import { type Page, useApp } from "../store/app";
+
+const PAGES: { id: Page; label: string; icon: typeof Settings }[] = [
+  { id: "usage", label: "Usage", icon: BarChart3 },
+  { id: "permissions", label: "Permissions", icon: ShieldCheck },
+  { id: "settings", label: "Settings", icon: Settings },
+];
 import { Button, Kbd, Mark, StatePill } from "./primitives";
 
 export function Sidebar() {
   const { project, sessions, activeSessionId, search, showArchived, closeProject, createSession, selectSession,
-    setSearch, toggleArchived, renameSession, archiveSession } = useApp();
+    setSearch, toggleArchived, renameSession, archiveSession, page, setPage } = useApp();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
@@ -42,7 +48,7 @@ export function Sidebar() {
         {sessions.length === 0 && <p className="px-2 py-3 text-[12px] text-faint">No sessions yet.</p>}
         {sessions.map((s) => (
           <div key={s.id} className={cn("group flex items-center gap-1 rounded-md px-2 py-1.5",
-            s.id === activeSessionId ? "bg-raised" : "hover:bg-raised/60")}>
+            s.id === activeSessionId && page === "session" ? "bg-raised" : "hover:bg-raised/60")}>
             {editing === s.id ? (
               <input autoFocus value={draft} onChange={(e) => setDraft(e.target.value)}
                 onBlur={() => setEditing(null)}
@@ -72,6 +78,15 @@ export function Sidebar() {
         ))}
       </nav>
 
+      <nav className="border-t border-line px-2 py-1.5" aria-label="Project">
+        {PAGES.map(({ id, label, icon: Icon }) => (
+          <button key={id} type="button" onClick={() => setPage(id)} aria-current={page === id ? "page" : undefined}
+            className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[13px]",
+              page === id ? "bg-raised text-ink" : "text-muted hover:bg-raised/60 hover:text-ink")}>
+            <Icon className="size-4" />{label}
+          </button>
+        ))}
+      </nav>
       <div className="border-t border-line px-3 py-2">
         <label className="flex items-center gap-2 text-[12px] text-muted">
           <input type="checkbox" checked={showArchived} onChange={() => void toggleArchived()} />

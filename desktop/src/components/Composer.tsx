@@ -4,6 +4,7 @@ import { useState } from "react";
 import { latestRun } from "../lib/types";
 import { useApp } from "../store/app";
 import { Button, Kbd, StatePill } from "./primitives";
+import { SessionControls } from "./SessionControls";
 
 export function RunBar() {
   const { view, stop, cancel, resume, busy } = useApp();
@@ -54,7 +55,8 @@ export function Composer() {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void submit(); } }}
           className="w-full resize-none bg-transparent px-4 pt-3 text-[14px] outline-none placeholder:text-faint disabled:opacity-60" />
-        <div className="flex items-center gap-3 px-3 pb-2.5">
+        <SessionControls />
+        <div className="flex items-center gap-3 border-t border-line/60 px-3 pb-2.5 pt-2">
           <label className="flex items-center gap-1.5 text-[12px] text-muted" title="Answer the lead's questions with its stated defaults">
             <input type="checkbox" checked={acceptDefaults} onChange={(e) => setAcceptDefaults(e.target.checked)} />
             Accept the lead's default answers
