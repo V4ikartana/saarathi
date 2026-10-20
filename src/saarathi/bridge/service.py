@@ -7,13 +7,15 @@ import dataclasses
 import os
 import platform
 import shlex
+import shutil
 import sys
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from saarathi import __version__
+from saarathi import __version__, user_settings
 from saarathi.bridge.drivers import (
     INTERRUPT_CONTROL,
     driver_log,
@@ -47,6 +49,13 @@ from saarathi.storage.store import utcnow
 
 PROTOCOL = 1
 CANCEL_WAIT_SECONDS = 30.0
+LIMITS_TTL_SECONDS = 60.0
+# Provider CLIs Saarathi has adapters for: adapter type -> (binary, provider).
+KNOWN_CLIS = {
+    "claude-code": ("claude", "anthropic"),
+    "codex-cli": ("codex", "openai"),
+    "antigravity-cli": ("agy", "google"),
+}
 
 
 class BridgeError(Exception):
@@ -88,6 +97,7 @@ class BridgeService:
     def __init__(self) -> None:
         self._projects: dict[str, Project] = {}
         self._policy_stamp: dict[str, float] = {}  # policies.yaml mtime each cached project was loaded with
+        self._limits: dict[str, tuple[float, list[dict[str, Any]]]] = {}  # project root -> (read at, limits)
         self._idempotent: dict[str, Any] = {}
 
     # ------------------------------------------------------------------ plumbing
@@ -119,9 +129,11 @@ class BridgeService:
             "tasks.file": self.tasks_file,
             "runs.timeline": self.runs_timeline,
             "models.list": self.models_list,
+            "models.set_enabled": self.models_set_enabled,
             "providers.status": self.providers_status,
             "policy.get": self.policy_get,
             "usage.summary": self.usage_summary,
+            "usage.limits": self.usage_limits,
         }
 
     def project(self, path: str) -> Project:
@@ -575,7 +587,14 @@ class BridgeService:
 
     def models_list(self, project: str) -> list[Any]:
         p = self.project(project)
-        return [jsonable(ModelOut.from_descriptor(m)) for m in p.registry.models()]
+        off = user_settings.disabled_models()
+        return [
+            {**jsonable(ModelOut.from_descriptor(m)), "disabled": m.candidate_id in off} for m in p.registry.models()
+        ]
+
+    def models_set_enabled(self, candidate: str, enabled: bool) -> dict[str, Any]:
+        """Turn a model on or off for this person, in every project (``<data dir>/settings.json``)."""
+        return {"disabled": sorted(user_settings.set_model_enabled(candidate, enabled))}
 
     def policy_get(self, project: str) -> dict[str, Any]:
         """The effective policy and how each worker is contained, for the permission review screen. Read-only:
@@ -599,8 +618,19 @@ class BridgeService:
                     "worker_command": shlex.join(command) if command else None,
                 }
             )
+        configured = {cfg.type or name for name, cfg in pol.providers.items()} | set(pol.providers)
+        missing = []
+        for adapter_type, (binary, provider) in KNOWN_CLIS.items():
+            found = shutil.which(binary)
+            if adapter_type in configured or found is None:
+                continue
+            steps = [f"add `{adapter_type}:` under `providers:` (models are discovered)"]
+            if provider not in pol.routing.allowed_providers:
+                steps.append(f"add `{provider}` to routing.allowed_providers and `{provider}/*` to allowed_models")
+            missing.append({"adapter": adapter_type, "provider": provider, "binary": found, "steps": steps})
         return {
             "path": str(p.meta / "policies.yaml"),
+            "unconfigured_clis": missing,
             "mode": pol.mode,
             "lead": f"{pol.orchestration.lead.adapter}:{pol.orchestration.lead.model}",
             "lead_substitute": (
@@ -625,6 +655,21 @@ class BridgeService:
             ),
             "workers": workers,
         }
+
+    def usage_limits(self, project: str, refresh: bool = False) -> dict[str, Any]:
+        """Remaining subscription usage per enabled provider, as each CLI reports it. Read in parallel and cached
+        for a minute: the CLIs take a few seconds each."""
+        p = self.project(project)
+        key = str(p.root)
+        cached = self._limits.get(key)
+        if cached and not refresh and time.monotonic() - cached[0] < LIMITS_TTL_SECONDS:
+            return {"limits": cached[1], "cached": True}
+        adapters = [a for name, a in p.registry.adapters.items() if p.policy.providers[name].enabled]
+        with ThreadPoolExecutor(max_workers=max(1, len(adapters))) as pool:
+            results = list(pool.map(lambda a: a.read_limits(), adapters))
+        limits = [r.as_dict() for r in results if r is not None]
+        self._limits[key] = (time.monotonic(), limits)
+        return {"limits": limits, "cached": False}
 
     def usage_summary(self, project: str, max_runs: int = 20) -> dict[str, Any]:
         return usage_summary(self.project(project), max_runs=max_runs)

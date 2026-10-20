@@ -1,7 +1,8 @@
 """Usage as the providers reported it, aggregated from attempts and lead calls. Nothing is estimated here.
 
-Subscription CLIs report tokens per call (some not at all) and never report remaining quota or reset times, so this
-summary has no quota figures. Costs are only those a provider or adapter recorded, flagged as estimates when they are.
+Subscription CLIs report tokens per call (some not at all). Remaining plan usage is read separately from each CLI's
+usage command (``ProviderAdapter.read_limits``). Costs are only those a provider or adapter recorded, flagged as
+estimates when they are.
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ from saarathi.orchestration.project import Project
 from saarathi.storage.store import utcnow
 
 QUOTA_NOTE = (
-    "Remaining quota and reset times are not reported by any supported provider CLI, so Saarathi cannot show them."
+    "Token counts and costs come from each call's own report. Remaining plan usage comes from each CLI's usage"
+    " command (`claude /usage`, Codex's rate-limit read, `agy /usage`)."
 )
 
 

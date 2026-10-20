@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from saarathi import user_settings
 from saarathi.core.contracts import ModelDescriptor
 from saarathi.core.errors import ConfigError
 from saarathi.core.policy import Policy, ProviderConfig
@@ -53,7 +54,13 @@ class ProviderRegistry:
             raise ConfigError(f"provider adapter '{name}' is not configured") from exc
 
     def models(self) -> list[ModelDescriptor]:
+        """Every model of every adapter. Models the person turned off are listed but unavailable, which every
+        routing and lead check already refuses."""
+        disabled = user_settings.disabled_models()
         out: list[ModelDescriptor] = []
         for adapter in self.adapters.values():
-            out.extend(adapter.list_models())
+            for m in adapter.list_models():
+                if m.candidate_id in disabled:
+                    m = m.model_copy(update={"available": False, "unavailable_reason": user_settings.DISABLED_REASON})
+                out.append(m)
         return out

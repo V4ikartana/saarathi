@@ -14,6 +14,7 @@ from saarathi.core.contracts import ModelDescriptor, Plan, ReviewVerdict, Risk
 from saarathi.core.errors import ConfigError, PolicyViolation
 from saarathi.core.policy import ApprovalPreset, Policy
 from saarathi.storage.store import StateStore
+from saarathi.user_settings import DISABLED_REASON
 
 APPROVALS_CONTROL = "pref.approvals"
 MODEL_CONTROL = "pref.model"
@@ -68,6 +69,8 @@ class RunPreferences:
         allowed, why = policy.routing.model_allowed(model.provider, model.key)
         if not allowed:
             raise PolicyViolation(f"model '{self.model}' is not allowed: {why}")
+        if model.unavailable_reason == DISABLED_REASON:
+            raise PolicyViolation(f"model '{self.model}' is {DISABLED_REASON}", hint="turn it back on in Settings")
 
     def record(self, store: StateStore, run_id: str, *, actor: str) -> None:
         store.set_control(run_id, APPROVALS_CONTROL, self.approvals.value, actor=actor)

@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from collections.abc import Sequence
 from typing import Any
 
@@ -39,6 +40,7 @@ from saarathi.providers.base import (
     preview_invocation,
     run_quick,
 )
+from saarathi.providers.limits import ProviderLimits, parse_agy_usage, run_text
 from saarathi.runtime.process import run_process, write_log
 from saarathi.security.env import filtered_env
 from saarathi.security.redaction import Redactor
@@ -158,6 +160,19 @@ class AntigravityCliAdapter(ProviderAdapter):
                 m = m.model_copy(update={"available": False, "unavailable_reason": "not offered by `agy models`"})
             out.append(m)
         return out
+
+    def read_limits(self) -> ProviderLimits | None:
+        limits = ProviderLimits(self.name, "agy -p /usage")
+        binary = self._binary()
+        if binary is None:
+            limits.error = "agy binary not found on PATH"
+            return limits
+        argv = [binary, "-p", "/usage", "--output-format", "json", "--print-timeout", "40s"]
+        try:
+            limits.windows = parse_agy_usage(run_text(argv, self._env(), timeout=60))
+        except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+            limits.error = str(exc) or type(exc).__name__
+        return limits
 
     def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
         if self._binary() is None:

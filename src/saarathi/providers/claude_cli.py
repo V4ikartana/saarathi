@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from collections.abc import Sequence
 from typing import Any
 
@@ -31,6 +32,7 @@ from saarathi.providers.base import (
     preview_invocation,
     run_quick,
 )
+from saarathi.providers.limits import ProviderLimits, parse_claude_usage, run_text
 from saarathi.runtime.process import run_process, write_log
 from saarathi.security.env import filtered_env
 from saarathi.security.redaction import Redactor
@@ -119,6 +121,19 @@ class ClaudeCodeAdapter(ProviderAdapter):
             )
         result.notices.append(f"{LIVE_UNVERIFIED_PREFIX} until `saarathi doctor --live` passes on this machine.")
         return result
+
+    def read_limits(self) -> ProviderLimits | None:
+        limits = ProviderLimits(self.name, "claude -p /usage")
+        binary = self._binary()
+        if binary is None:
+            limits.error = "claude binary not found on PATH"
+            return limits
+        argv = [binary, "-p", "/usage", "--output-format", "json", "--no-session-persistence"]
+        try:
+            limits.windows = parse_claude_usage(run_text(argv, self._env(), timeout=45))
+        except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+            limits.error = str(exc) or type(exc).__name__
+        return limits
 
     def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
         if self._binary() is None:

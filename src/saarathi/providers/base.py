@@ -23,6 +23,7 @@ from saarathi.core.contracts import (
     Usage,
 )
 from saarathi.core.policy import ProviderConfig
+from saarathi.providers.limits import ProviderLimits
 from saarathi.providers.model_catalog import classify
 
 
@@ -166,6 +167,11 @@ class ProviderAdapter(ABC):
 
     @abstractmethod
     def _probe_impl(self) -> ProbeResult: ...
+
+    def read_limits(self) -> ProviderLimits | None:
+        """Remaining subscription usage as this provider's CLI reports it, or None if it has no such report.
+        Never calls a model and never reads credentials; a failure is returned in ``ProviderLimits.error``."""
+        return None
 
     def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
         """The exact command line this adapter runs for a worker task, with placeholders for the prompt, schema,

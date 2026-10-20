@@ -28,6 +28,7 @@ from saarathi.providers.base import (
     preview_invocation,
     run_quick,
 )
+from saarathi.providers.limits import ProviderLimits, read_codex_limits
 from saarathi.runtime.process import run_process, write_log
 from saarathi.security.env import filtered_env
 from saarathi.security.redaction import Redactor
@@ -150,6 +151,18 @@ class CodexCliAdapter(ProviderAdapter):
             result.discovery_source = "codex debug models"
         except ValueError as exc:
             result.notices.append(f"Model discovery unavailable ({exc}); only declared Codex models are listed.")
+
+    def read_limits(self) -> ProviderLimits | None:
+        limits = ProviderLimits(self.name, "codex app-server: account/rateLimits/read")
+        binary = self._binary()
+        if binary is None:
+            limits.error = "codex binary not found on PATH"
+            return limits
+        try:
+            limits.windows, limits.plan = read_codex_limits(binary, self._env(), timeout=30)
+        except (ValueError, OSError) as exc:
+            limits.error = str(exc) or type(exc).__name__
+        return limits
 
     def worker_command(self, *, allow_network: bool, allowed_commands: Sequence[str]) -> list[str] | None:
         if self._binary() is None:

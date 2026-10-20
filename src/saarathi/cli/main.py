@@ -19,7 +19,7 @@ from typing import Annotated, Any
 
 import typer
 
-from saarathi import __version__
+from saarathi import __version__, user_settings
 from saarathi.bridge.drivers import INTERRUPT_CONTROL
 from saarathi.cli.output import (
     AccountOut,
@@ -375,6 +375,28 @@ def models_list(json_out: JsonFlag = False) -> None:
             )
 
     emit(models, json_out, show)
+
+
+@models_app.command("disable")
+def models_disable(model: Annotated[str, typer.Argument(help="adapter:model, e.g. codex-cli:gpt-6-astra")]) -> None:
+    """Turn a model off in every project: it is never routed to, preferred, pinned or used as lead."""
+    try:
+        off = user_settings.set_model_enabled(model, False)
+    except ValueError as exc:
+        _fail(ConfigError(str(exc)))
+        raise
+    typer.echo(f"Turned off {model}. Models turned off: {', '.join(sorted(off))}")
+
+
+@models_app.command("enable")
+def models_enable(model: Annotated[str, typer.Argument(help="adapter:model")]) -> None:
+    """Turn a model you turned off back on."""
+    try:
+        off = user_settings.set_model_enabled(model, True)
+    except ValueError as exc:
+        _fail(ConfigError(str(exc)))
+        raise
+    typer.echo(f"Turned on {model}. Models turned off: {', '.join(sorted(off)) or 'none'}")
 
 
 def _active_limits(project: Project) -> dict[str, str]:
@@ -733,6 +755,25 @@ def usage(json_out: JsonFlag = False) -> None:
     for limit in data["limits"]:
         typer.echo(f"  {limit['adapter']} {limit['state'].replace('_', ' ')} until {limit['until']}: {limit['reason']}")
     typer.echo(data["quota_note"], err=True)
+
+
+@app.command()
+def limits(json_out: JsonFlag = False) -> None:
+    """Remaining subscription usage per provider, as each CLI reports it (no model call)."""
+    project = _project()
+    read = [a.read_limits() for name, a in project.registry.adapters.items() if project.policy.providers[name].enabled]
+    results = [found.as_dict() for found in read if found is not None]
+    if json_out:
+        typer.echo(json.dumps(results, indent=2))
+        return
+    for r in results:
+        plan = f" ({r['plan']} plan)" if r["plan"] else ""
+        typer.echo(f"{r['adapter']}{plan}  via {r['source']}")
+        if r["error"]:
+            typer.echo(f"  unavailable: {r['error']}")
+        for w in r["windows"]:
+            resets = w["resets_at"] or w["resets_text"] or "unknown"
+            typer.echo(f"  {w['label']:<36} {w['remaining_percent']:>5.1f}% left  resets {resets}")
 
 
 def _print_integration(d: RoutingDecision) -> None:

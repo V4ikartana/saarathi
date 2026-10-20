@@ -306,7 +306,7 @@ def test_session_preferences_policy_view_and_usage(client, repo, tmp_path):
     usage = client.ok("usage.summary", project=project)
     roles = {(m["role"], m["candidate"]) for m in usage["by_model"]}
     assert ("worker", "fake-codex:default") in roles and ("lead", "fake-claude:opus") in roles
-    assert usage["totals"]["calls"] >= 4 and "not reported" in usage["quota_note"]
+    assert usage["totals"]["calls"] >= 4 and "usage command" in usage["quota_note"]
     assert usage["runs"][0]["run_id"] == run_id
 
     policy_file = repo / ".saarathi" / "policies.yaml"

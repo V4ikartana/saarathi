@@ -41,9 +41,11 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "tasks.inspect",
     "tasks.file",
     "models.list",
+    "models.set_enabled",
     "providers.status",
     "policy.get",
     "usage.summary",
+    "usage.limits",
     "subscribe",
     "unsubscribe",
 ];
