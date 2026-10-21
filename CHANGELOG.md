@@ -5,6 +5,15 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 
 ## [Unreleased]
 
+### Added
+- Local open-source models as workers (ADR-0015): a `local-openai` adapter for Ollama, LM Studio, llama.cpp and vLLM.
+  Saarathi drives the model in its own agent loop, with file tools confined to the task worktree, no shell, and
+  structured answers through a `submit_result` tool. Loopback servers only unless `allow_remote` is set. Installed
+  models are discovered, unmetered, and listed as economy tier. Ollama runs through its native API so the context
+  window can be set (`context_tokens`, default 16384). The desktop app can add the adapter to a project and notices a
+  running local server. New example policy `examples/health-widget/policy.codex-local.yaml`.
+- Open-weight model families in the model catalogue; `gpt-oss:` (Ollama naming) is recognised.
+
 ## [0.1.0] - 2026-10-21
 
 First release, with installers for macOS (Apple silicon), Windows and Linux. The builds are not yet signed: see

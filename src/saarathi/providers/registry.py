@@ -11,11 +11,13 @@ from saarathi.providers.base import ProviderAdapter
 from saarathi.providers.claude_cli import ClaudeCodeAdapter
 from saarathi.providers.codex_cli import CodexCliAdapter
 from saarathi.providers.fake import FAKE_ENV_FLAG, FakeAdapter, fake_providers_allowed
+from saarathi.providers.local_openai import LocalOpenAIAdapter
 
 ADAPTER_TYPES: dict[str, type[ProviderAdapter]] = {
     "antigravity-cli": AntigravityCliAdapter,
     "claude-code": ClaudeCodeAdapter,
     "codex-cli": CodexCliAdapter,
+    "local-openai": LocalOpenAIAdapter,
 }
 
 

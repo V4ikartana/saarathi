@@ -447,7 +447,7 @@ export function PermissionsPage() {
                     );
                   })}
                   {editing && p.addable_adapters.map((a) => (
-                    <Row key={a} label={a} hint="Installed on this computer, not in this project yet.">
+                    <Row key={a} label={a} hint={a === "local-openai" ? "Open-source models from Ollama or LM Studio on this computer." : "Installed on this computer, not in this project yet."}>
                       {value("providers.add") === a
                         ? <span className="text-[13px] text-accent">Will be added</span>
                         : <Button onClick={() => addAdapter(a)}>Add to this project</Button>}
@@ -562,7 +562,7 @@ function ModelsPanel({ root }: { root: string }) {
       {error && <p className="mt-2 text-[13px] text-err">{error}</p>}
       {(policy.data?.unconfigured_clis ?? []).map((c) => (
         <div key={c.adapter} className="mt-3 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-[13px]">
-          <div className="font-medium">{c.adapter} is installed but this project's policy does not include it.</div>
+          <div className="font-medium">{c.adapter === "local-openai" ? `A local model server is running at ${c.binary}` : `${c.adapter} is installed`} but this project's policy does not include it.</div>
           <ul className="mt-1 list-disc pl-5 text-[12px] text-muted">{c.steps.map((step) => <li key={step}>{step}</li>)}</ul>
           <div className="mt-1 text-[12px] text-faint">Edit <span className="font-mono">{policy.data?.path}</span>; changes apply on the next request.</div>
         </div>

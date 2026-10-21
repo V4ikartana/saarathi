@@ -24,3 +24,19 @@ Evidence and dates are in [`docs/phase0/feasibility-report.md`](../phase0/feasib
 | Integration inventory (connected services, accounts, scopes) | – no documented interface; `integrations scan` reports `unverified` | – no documented interface; `integrations scan` reports `unverified` | – `agy mcp list` shows MCP servers, not accounts or scopes; `integrations scan` reports `unverified` | n/a |
 | Safe integration probe | – (`verify` can only record user confirmation) | – (`verify` can only record user confirmation) | – | n/a |
 | Automation policy | API key recommended; ChatGPT auth on trusted machines | Subscription for "ordinary use"; see ADR-0006 | Docs present headless mode for scripting and CI; no usage-policy statement found | Deferred |
+
+## Local open-source models (`local-openai`, ADR-0015)
+
+Run in Saarathi's own agent loop, not through a CLI, so most rows above do not apply.
+
+| Capability | Ollama 0.40.7 (macOS, Apple M4, 16 GB) | Other OpenAI-compatible servers (LM Studio, llama.cpp, vLLM) |
+|---|---|---|
+| Model discovery | V `GET /v1/models` (2026-10-21) | Contract-tested against a scripted server |
+| Chat with tools | V native `/api/chat` with `options.num_ctx` (the OpenAI endpoint cannot set the context window) | `/v1/chat/completions` with `tools`, contract-tested |
+| Structured output | V via the `submit_result` tool, schema checked by Saarathi; `gemma4:e4b` used API tool calls, `qwen2.5-coder:7b` wrote them as JSON text (both handled) | Same loop, contract-tested |
+| Workspace write restriction | V Saarathi's file tools only, confined to the worktree; `.git` and paths outside are refused | Same |
+| Shell / network | – none: Saarathi runs verification; requests go only to the configured loopback server | Same |
+| Usage reporting | V prompt and completion tokens; cost 0 | `usage` tokens; cost 0 |
+| Plan limits | n/a (unmetered) | n/a |
+| End to end (`examples/health-widget`, Codex lead, local worker pinned), 2026-10-21 | V `gemma4:e4b`: T-001 (health route and tests) passed Saarathi's verification; T-002 wrote its files, but its test file had no discoverable tests and was rejected. `qwen2.5-coder:7b`: both tasks rejected (missing test file; a test importing JavaScript as Python). Small models need retries or a larger model for multi-step tasks | – |
+
