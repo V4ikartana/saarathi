@@ -551,13 +551,32 @@ function ModelsPanel({ root }: { root: string }) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
+  // A tier the person picked here: "default" until the list reloads after a reset.
+  const [tiers, setTiers] = useState<Record<string, string>>({});
+  const chooseTier = async (m: ModelInfo, value: string) => {
+    const before = tiers[m.candidate];
+    setTiers((t) => ({ ...t, [m.candidate]: value }));
+    setError(null);
+    try {
+      await call("models.set_tier", { candidate: m.candidate, tier: value === "default" ? null : value });
+    } catch (err) {
+      setTiers((t) => {
+        const next = { ...t };
+        if (before === undefined) delete next[m.candidate];
+        else next[m.candidate] = before;
+        return next;
+      });
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
   const groups = new Map<string, ModelInfo[]>();
   for (const m of models.data ?? []) groups.set(m.adapter, [...(groups.get(m.adapter) ?? []), m]);
   return (
     <Card title="Models" delay={0.04}>
       <p className="text-[13px] text-muted">
         Turn a model off and Saarathi never uses it, in any project: the router skips it, sessions cannot prefer or pin it,
-        and it cannot lead. Tiers come from your policy, the provider, or Saarathi's model catalogue.
+        and it cannot lead. Tiers come from your policy, the provider, or Saarathi's model catalogue. Change a model's
+        tier to decide how Saarathi treats it everywhere: for example, make a local model you trust frontier.
       </p>
       {error && <p className="mt-2 text-[13px] text-err">{error}</p>}
       {(policy.data?.unconfigured_clis ?? []).map((c) => (
@@ -582,7 +601,7 @@ function ModelsPanel({ root }: { root: string }) {
                     <div className="min-w-0 flex-1">
                       <div className={cn("flex items-center gap-2 text-[13px]", off && "text-faint line-through decoration-faint/60")}>
                         <Mono>{m.model}</Mono>
-                        <TierPill tier={m.reasoning_tier} />
+                        <TierSelect model={m} value={tiers[m.candidate]} onChange={(v) => void chooseTier(m, v)} />
                         {m.source.startsWith("discovered") && <span className="text-[11px] text-faint">discovered</span>}
                       </div>
                       {!off && !m.available && m.unavailable_reason && (
@@ -608,8 +627,31 @@ const TIER_STYLE: Record<string, string> = {
   unknown: "bg-raised text-faint",
 };
 
-function TierPill({ tier }: { tier: string }) {
-  return <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium", TIER_STYLE[tier] ?? TIER_STYLE.unknown)}>{tier}</span>;
+const TIERS = ["frontier", "balanced", "economy"] as const;
+
+/** The model's tier as a menu: the three tiers, plus going back to the default when the person chose one. */
+function TierSelect({ model, value, onChange }: { model: ModelInfo; value: string | undefined; onChange: (tier: string) => void }) {
+  const chosen = value === undefined ? (model.tier_set_by_you ? model.reasoning_tier : "default") : value;
+  const shown = chosen === "default" ? model.default_tier : chosen;
+  return (
+    <label className="relative inline-flex items-center">
+      <span className="sr-only">{`Tier of ${model.candidate}`}</span>
+      <select
+        aria-label={`Tier of ${model.candidate}`}
+        value={chosen}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          "cursor-pointer appearance-none rounded-full py-0.5 pl-2 pr-5 text-[11px] font-medium outline-none focus:ring-2 focus:ring-accent/30",
+          TIER_STYLE[shown] ?? TIER_STYLE.unknown,
+        )}
+      >
+        <option value="default">{`${model.default_tier} (default)`}</option>
+        {TIERS.map((t) => <option key={t} value={t}>{t}</option>)}
+      </select>
+      <span aria-hidden className="pointer-events-none absolute right-1.5 text-[9px] opacity-70">▾</span>
+      {chosen !== "default" && <span className="ml-1.5 text-[11px] text-faint">set by you</span>}
+    </label>
+  );
 }
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {

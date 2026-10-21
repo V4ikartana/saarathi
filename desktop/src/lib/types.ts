@@ -306,6 +306,8 @@ export interface ModelInfo {
   source: string;
   provider_limit: string | null;
   disabled: boolean; // turned off by this person in Settings, in every project
+  tier_set_by_you: boolean; // reasoning_tier was chosen by this person in Settings, in every project
+  default_tier: string; // the tier from the policy, catalogue or provider, before the person's choice
 }
 
 export interface PresetInfo {

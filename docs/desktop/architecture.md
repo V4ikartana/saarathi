@@ -97,6 +97,7 @@ JSON-RPC 2.0, one JSON object per line on stdout. stderr is for logs only. Every
 | `usage.summary {project}` | Provider-reported tokens and costs per model and run, active provider limits |
 | `usage.limits {project, refresh}` | Remaining plan usage per provider from each CLI's usage command; read on a background thread (`pending` until done), cached a minute |
 | `models.set_enabled {candidate, enabled}` | Turn a model off or on for this person in every project (`<data dir>/settings.json`) |
+| `models.set_tier {candidate, tier}` | Choose a model's tier (`frontier`, `balanced`, `economy`) for this person in every project; `null` resets it. `models.list` rows carry `tier_set_by_you` and `default_tier` |
 | `subscribe {project}` / `unsubscribe` | Start or stop `events/appended` notifications |
 
 Errors use JSON-RPC codes plus `data.kind`: `invalid_params`, `not_found`, `project_busy`, `invalid_state`,

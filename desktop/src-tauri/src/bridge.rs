@@ -42,6 +42,7 @@ pub const ALLOWED_METHODS: &[&str] = &[
     "tasks.file",
     "models.list",
     "models.set_enabled",
+    "models.set_tier",
     "providers.status",
     "policy.get",
     "policy.update",
