@@ -5,6 +5,11 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-21
+
+First release, with installers for macOS (Apple silicon), Windows and Linux. The builds are not yet signed: see
+[docs/release/installing.md](docs/release/installing.md) for the one-time first-launch steps.
+
 ### Added
 - Phase 0: feasibility report, provider compatibility matrix, ADR-0001 to ADR-0007, risk register, backlog.
 - Deterministic control plane: run and task state machines, SQLite store with an atomic event log and
