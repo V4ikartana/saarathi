@@ -23,6 +23,21 @@ and one control plane:
 - **Every decision is inspectable:** `saarathi route explain T-001` shows why a model was chosen and why
   others were rejected.
 
+## Download
+
+Get the latest installers from **[Releases](https://github.com/V4ikartana/saarathi/releases/latest)**. Saarathi
+Desktop includes the engine, so you don't need Python, `uv` or a terminal:
+
+| Platform | File |
+|---|---|
+| macOS (Apple silicon) | `Saarathi_<version>_aarch64.dmg` |
+| Windows | `Saarathi_<version>_x64-setup.exe` or `.msi` |
+| Linux | `saarathi_<version>_amd64.deb` or `Saarathi_<version>_amd64.AppImage` |
+
+You still need at least one provider CLI installed and signed in (see below). Builds aren't code-signed yet, so macOS
+and Windows warn on first launch; [docs/release/installing.md](docs/release/installing.md) shows how to open the app
+anyway, and how to check a download against `SHA256SUMS.txt`.
+
 ## Compatibility and prerequisites
 
 - macOS, Linux or Windows, Python 3.12+, Git 2.40+. The test suite runs on all three in CI; provider CLIs have been
@@ -39,7 +54,7 @@ and one control plane:
 ## Quick start
 
 ```bash
-git clone <repository-url> saarathi && cd saarathi
+git clone https://github.com/V4ikartana/saarathi.git && cd saarathi
 uv sync
 source .venv/bin/activate
 
@@ -94,7 +109,8 @@ inspect every task: attempts, verification evidence, routing decisions, diffs, l
 prefer or pin a worker model and choose an approval preset within the policy, and the app shows usage and the effective
 permissions of every worker.
 It talks to the engine only through `saarathi bridge --stdio` (ADR-0013), and runs keep going when the window closes.
-It is a v0.1 foundation: no installers yet. See [desktop/README.md](desktop/README.md).
+Installers are on the [Releases](https://github.com/V4ikartana/saarathi/releases/latest) page. See
+[desktop/README.md](desktop/README.md).
 
 ## Configuration
 
