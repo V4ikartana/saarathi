@@ -326,3 +326,44 @@ def test_symlinks_out_of_the_worktree_are_not_followed(tmp_path):
         ws.read_file("link.txt")
     with pytest.raises(ToolError, match="outside the worktree"):
         ws.write_file("link.txt", "x")
+
+
+def test_a_broken_text_call_gets_specific_feedback(serve, worktree):
+    s = serve(
+        [
+            {"content": '{"name": "write_file", "arguments": {"path": "a.py", "content": """x"""}}'},
+            call("submit_result", status="failed", summary="gave up"),
+        ]
+    )
+    r = invoke(adapter(s.url), worktree)
+    assert r.ok
+    feedback = s.requests[1]["messages"][-1]["content"]
+    assert "was not valid JSON" in feedback and "write_file" in feedback
+
+
+def test_a_worktree_git_file_is_not_listed(tmp_path):
+    (tmp_path / ".git").write_text("gitdir: /elsewhere\n")
+    (tmp_path / "a.py").write_text("x = 1\n")
+    ws = Workspace(tmp_path, writable=False)
+    assert ws.list_files() == "a.py"
+    assert ws.search("gitdir") == "(no matches)"
+
+
+def test_a_call_missing_its_last_brace_is_repaired(serve, worktree):
+    from saarathi.providers.local_openai import close_brackets
+
+    assert close_brackets('{"a": {"b": "x}"}') == {"a": {"b": "x}"}}
+    assert close_brackets('{"a": 1}') is None and close_brackets('{"a": "open') is None
+    s = serve([{"content": '{"name": "submit_result", "arguments": {"status": "succeeded", "summary": "ok"}'}])
+    r = invoke(adapter(s.url), worktree)
+    assert r.ok and r.structured == {"status": "succeeded", "summary": "ok"}
+
+
+def test_repeating_the_same_failing_call_stops_early(serve, worktree):
+    def bad():
+        return call("replace_in_file", path="src/app.py", old_text="nope", new_text="x")
+
+    s = serve([bad(), bad(), bad(), call("submit_result", status="succeeded", summary="never reached")])
+    r = invoke(adapter(s.url), worktree)
+    assert not r.ok and r.error_kind is ErrorKind.INVALID_OUTPUT and "3 times" in r.error
+    assert len(s.requests) == 3

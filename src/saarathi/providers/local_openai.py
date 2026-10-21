@@ -53,6 +53,7 @@ MAX_FILE_BYTES = 2_000_000
 MAX_LIST = 600
 MAX_SEARCH_HITS = 200
 MAX_NUDGES = 3
+MAX_REPEATS = 3
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
 
 SYSTEM_PROMPT = """You are a careful software engineer working inside one Git worktree for Saarathi.
@@ -67,10 +68,19 @@ How to work:
   needs; fill every required field truthfully. Do not put the answer in plain text instead."""
 WRITE_RULE = "Change files with write_file (whole file) or replace_in_file (exact text, prefer this for small edits)."
 READ_RULE = "This is a read-only session: read and search only, do not try to change files."
+BAD_CALL = (
+    "Your call to {name} was not valid JSON, so it did not run. Write the call as one JSON object, "
+    '{{"name": "{name}", "arguments": {{...}}}}: inside strings escape double quotes as \\" and newlines as \\n, '
+    "and never use triple quotes. For a large file, prefer several small replace_in_file calls."
+)
 NUDGE = (
     "You have not called submit_result. Call it now with your final answer as its arguments "
     "(every required field). Do not answer in plain text."
 )
+
+
+class StuckError(Exception):
+    """The model keeps making the same failing call; ending the attempt saves the time budget."""
 
 
 class ToolError(Exception):
@@ -150,7 +160,7 @@ class Workspace:
             d = Path(dirpath)
             if len(d.parts) - depth0 >= max(1, int(max_depth)):
                 dirnames[:] = []
-            for name in sorted(filenames):
+            for name in sorted(f for f in filenames if f not in SKIP_DIRS):  # a worktree's .git is a file
                 out.append(self.rel(d / name))
                 if len(out) >= MAX_LIST:
                     return "\n".join(out) + f"\n… (stopped at {MAX_LIST} entries; list a subfolder)"
@@ -182,7 +192,7 @@ class Workspace:
         if base.is_dir():
             for dirpath, dirnames, filenames in os.walk(base):
                 dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-                files += [Path(dirpath) / f for f in sorted(filenames)]
+                files += [Path(dirpath) / f for f in sorted(filenames) if f not in SKIP_DIRS]
         hits: list[str] = []
         root = self.root.resolve()
         for f in files:
@@ -350,7 +360,31 @@ def json_values(text: str) -> list[Any]:
             value, i = dec.raw_decode(text, j)
             out.append(value)
         except json.JSONDecodeError:
+            repaired = close_brackets(text[j:])
+            if repaired is not None:
+                out.append(repaired)
+                return out
             i = j + 1
+
+
+def close_brackets(text: str) -> Any:
+    """Parse JSON that only lacks closing brackets at the end, a common small-model slip; None otherwise."""
+    stack, in_str, esc = [], False, False
+    for ch in text:
+        if in_str:
+            esc, in_str = (False, in_str) if esc else (ch == "\\", ch != '"')
+        elif ch == '"':
+            in_str = True
+        elif ch in "{[":
+            stack.append("}" if ch == "{" else "]")
+        elif ch in "}]" and (not stack or stack.pop() != ch):
+            return None
+    if in_str or not stack:
+        return None
+    try:
+        return json.loads(text.rstrip() + "".join(reversed(stack)))
+    except json.JSONDecodeError:
+        return None
 
 
 def text_tool_calls(text: str, names: set[str]) -> list[tuple[str, Any]]:
@@ -509,6 +543,7 @@ class LocalOpenAIAdapter(ProviderAdapter):
         max_turns = int(self._opt("max_turns", 60))
         per_request = float(self._opt("request_timeout_seconds", 600))
         nudges = 0
+        failures: dict[str, int] = {}
 
         def finish(res: InvocationResult) -> InvocationResult:
             (inv.log_dir / "local-model.log").write_text(Redactor()("\n".join(transcript)), encoding="utf-8")
@@ -529,7 +564,13 @@ class LocalOpenAIAdapter(ProviderAdapter):
             if not isinstance(args, dict):
                 return "error: arguments must be a JSON object", None
             if name != "submit_result":
-                return self._run_tool(ws, name, args), None
+                out = self._run_tool(ws, name, args)
+                if out.startswith("error:"):
+                    key = name + json.dumps(args, sort_keys=True)
+                    failures[key] = failures.get(key, 0) + 1
+                    if failures[key] >= MAX_REPEATS:
+                        raise StuckError(f"the local model repeated the same failing {name} call {MAX_REPEATS} times")
+                return out, None
             problems = missing_fields(inv.schema, args)
             if problems:
                 return "error: the answer is not complete: " + "; ".join(problems) + ". Call submit_result again.", None
@@ -541,74 +582,86 @@ class LocalOpenAIAdapter(ProviderAdapter):
                 )
             return "accepted", args
 
-        for turn in range(1, max_turns + 1):
-            remaining = deadline - time.monotonic()
-            if remaining <= 2:
-                return fail(ErrorKind.TIMEOUT, "the local model ran out of time")
-            t0 = time.monotonic()
-            try:
-                msg, prompt_tokens, completion_tokens = self._chat(
-                    inv.model, messages, tools, min(remaining, per_request)
-                )
-            except Exception as exc:
-                kind, why = describe_http_error(exc)
-                transcript.append(f"[turn {turn}] request failed: {why}")
-                return fail(kind, why)
-            usage.input_tokens = (usage.input_tokens or 0) + prompt_tokens
-            usage.output_tokens = (usage.output_tokens or 0) + completion_tokens
-            calls = [c for c in (msg.get("tool_calls") or []) if isinstance(c, dict)]
-            content = msg.get("content") or ""
-            transcript.append(
-                f"[turn {turn}, {time.monotonic() - t0:.1f}s, {prompt_tokens} in / {completion_tokens} out] "
-                f"assistant: {content[:2000]}"
-                + "".join(
-                    f"\n  call {(c.get('function') or {}).get('name')}"
-                    f"({str((c.get('function') or {}).get('arguments'))[:1500]})"
-                    for c in calls
-                )
-            )
-            if calls:  # native tool calls: answer each with a tool message
-                messages.append({"role": "assistant", "content": content, "tool_calls": calls})
-                for call in calls:
-                    fn = call.get("function") or {}
-                    name = str(fn.get("name") or "")
-                    out, final = handle(name, fn.get("arguments"))
-                    transcript.append(f"  -> {out[:1500]}")
-                    if final is not None:
-                        transcript.append(f"[submitted; changed: {', '.join(ws.changed) or 'nothing'}]")
-                        return finish(InvocationResult(ok=True, structured=final, text=content, usage=usage))
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": call.get("id") or name,
-                            "name": name,
-                            "tool_name": name,
-                            "content": out[:MAX_TOOL_OUTPUT],
-                        }
+        try:
+            for turn in range(1, max_turns + 1):
+                remaining = deadline - time.monotonic()
+                if remaining <= 2:
+                    return fail(ErrorKind.TIMEOUT, "the local model ran out of time")
+                t0 = time.monotonic()
+                try:
+                    msg, prompt_tokens, completion_tokens = self._chat(
+                        inv.model, messages, tools, min(remaining, per_request)
                     )
-                continue
-            messages.append({"role": "assistant", "content": content})
-            written = text_tool_calls(content, names)
-            if written:  # some models write tool calls as JSON text instead: run them and reply in text
-                replies = []
-                for name, raw in written:
-                    out, final = handle(name, raw)
-                    transcript.append(f"  (text call {name}) -> {out[:1500]}")
-                    if final is not None:
-                        transcript.append(f"[submitted; changed: {', '.join(ws.changed) or 'nothing'}]")
-                        return finish(InvocationResult(ok=True, structured=final, text=content, usage=usage))
-                    replies.append(f"Result of {name}:\n{out[:MAX_TOOL_OUTPUT]}")
-                messages.append({"role": "user", "content": "\n\n".join(replies)})
-                continue
-            answer = parse_json_answer(content)
-            if answer is not None and not missing_fields(inv.schema, answer):
-                transcript.append("[accepted a JSON answer from plain text]")
-                return finish(InvocationResult(ok=True, structured=answer, text=content, usage=usage))
-            nudges += 1
-            if nudges > MAX_NUDGES:
-                return fail(ErrorKind.INVALID_OUTPUT, "the local model never called submit_result", content[-2000:])
-            messages.append({"role": "user", "content": NUDGE})
-        return fail(ErrorKind.INVALID_OUTPUT, f"the local model used {max_turns} turns without submitting a result")
+                except Exception as exc:
+                    kind, why = describe_http_error(exc)
+                    transcript.append(f"[turn {turn}] request failed: {why}")
+                    return fail(kind, why)
+                usage.input_tokens = (usage.input_tokens or 0) + prompt_tokens
+                usage.output_tokens = (usage.output_tokens or 0) + completion_tokens
+                calls = [c for c in (msg.get("tool_calls") or []) if isinstance(c, dict)]
+                content = msg.get("content") or ""
+                transcript.append(
+                    f"[turn {turn}, {time.monotonic() - t0:.1f}s, {prompt_tokens} in / {completion_tokens} out] "
+                    f"assistant: {content[:2000]}"
+                    + "".join(
+                        f"\n  call {(c.get('function') or {}).get('name')}"
+                        f"({str((c.get('function') or {}).get('arguments'))[:1500]})"
+                        for c in calls
+                    )
+                )
+                if calls:  # native tool calls: answer each with a tool message
+                    messages.append({"role": "assistant", "content": content, "tool_calls": calls})
+                    for call in calls:
+                        fn = call.get("function") or {}
+                        name = str(fn.get("name") or "")
+                        out, final = handle(name, fn.get("arguments"))
+                        transcript.append(f"  -> {out[:1500]}")
+                        if final is not None:
+                            transcript.append(f"[submitted; changed: {', '.join(ws.changed) or 'nothing'}]")
+                            return finish(InvocationResult(ok=True, structured=final, text=content, usage=usage))
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call.get("id") or name,
+                                "name": name,
+                                "tool_name": name,
+                                "content": out[:MAX_TOOL_OUTPUT],
+                            }
+                        )
+                    continue
+                messages.append({"role": "assistant", "content": content})
+                written = text_tool_calls(content, names)
+                if written:  # some models write tool calls as JSON text instead: run them and reply in text
+                    replies = []
+                    for name, raw in written:
+                        out, final = handle(name, raw)
+                        transcript.append(f"  (text call {name}) -> {out[:1500]}")
+                        if final is not None:
+                            transcript.append(f"[submitted; changed: {', '.join(ws.changed) or 'nothing'}]")
+                            return finish(InvocationResult(ok=True, structured=final, text=content, usage=usage))
+                        replies.append(f"Result of {name}:\n{out[:MAX_TOOL_OUTPUT]}")
+                    messages.append({"role": "user", "content": "\n\n".join(replies)})
+                    continue
+                broken = re.search(r'"name"\s*:\s*"(\w+)"', content)
+                if broken and broken.group(1) in names:  # tried to call a tool but the JSON does not parse
+                    nudges += 1
+                    if nudges > MAX_NUDGES:
+                        return fail(ErrorKind.INVALID_OUTPUT, "the local model kept writing invalid tool calls")
+                    transcript.append(f"  (invalid text call {broken.group(1)})")
+                    messages.append({"role": "user", "content": BAD_CALL.format(name=broken.group(1))})
+                    continue
+                answer = parse_json_answer(content)
+                if answer is not None and not missing_fields(inv.schema, answer):
+                    transcript.append("[accepted a JSON answer from plain text]")
+                    return finish(InvocationResult(ok=True, structured=answer, text=content, usage=usage))
+                nudges += 1
+                if nudges > MAX_NUDGES:
+                    return fail(ErrorKind.INVALID_OUTPUT, "the local model never called submit_result", content[-2000:])
+                messages.append({"role": "user", "content": NUDGE})
+            return fail(ErrorKind.INVALID_OUTPUT, f"the local model used {max_turns} turns without submitting a result")
+        except StuckError as exc:
+            transcript.append(f"[stopped: {exc}]")
+            return fail(ErrorKind.INVALID_OUTPUT, str(exc))
 
     @staticmethod
     def _run_tool(ws: Workspace, name: str, args: dict[str, Any]) -> str:

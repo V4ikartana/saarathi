@@ -38,4 +38,5 @@ Run in Saarathi's own agent loop, not through a CLI, so most rows above do not a
 | Shell / network | – none: Saarathi runs verification; requests go only to the configured loopback server | Same |
 | Usage reporting | V prompt and completion tokens; cost 0 | `usage` tokens; cost 0 |
 | Plan limits | n/a (unmetered) | n/a |
+| End to end (`examples/health-widget`, Codex lead, local worker pinned), 2026-10-21 | V `gemma4:e4b`: T-001 (health route and tests) passed Saarathi's verification; T-002 wrote its files, but its test file had no discoverable tests and was rejected. `qwen2.5-coder:7b`: both tasks rejected (missing test file; a test importing JavaScript as Python). Small models need retries or a larger model for multi-step tasks | – |
 

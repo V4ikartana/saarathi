@@ -185,8 +185,9 @@ Installers are on the [Releases](https://github.com/V4ikartana/saarathi/releases
   [ADR-0008](docs/architecture/decisions/ADR-0008-integration-and-identity-aware-routing.md) and
   [ADR-0009](docs/architecture/decisions/ADR-0009-cross-task-handoff.md).
 - A failed task stays failed for that run. Recovery from escalations means a new run.
-- Local models (ADR-0015) are only as capable as the model you run: small ones (7B and below) handle focused tasks
-  but often need retries on multi-step work. Servers other than Ollama are tested against a scripted
+- Local models (ADR-0015) are only as capable as the model you run. In the live end-to-end test, `gemma4:e4b`
+  completed one of the two example tasks and `qwen2.5-coder:7b` neither; Saarathi's verification rejected the failed
+  work rather than accepting it. Small models handle focused tasks; use a larger model for multi-step work. Servers other than Ollama are tested against a scripted
   OpenAI-compatible server only, not live.
 - Windows support is verified by the offline test suite only (ADR-0012). No provider CLI has been run live on Windows.
 
