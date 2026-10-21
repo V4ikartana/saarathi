@@ -51,7 +51,15 @@ ENTRIES: tuple[CatalogEntry, ...] = (
     CatalogEntry(r"gpt-\d+(\.\d+)?-sol(-.*)?", B, "OpenAI GPT Sol (workhorse)"),
     CatalogEntry(r"gpt-\d+(\.\d+)?-terra(-.*)?", B, "OpenAI GPT Terra (balanced)"),
     CatalogEntry(r"gpt-\d+(\.\d+)?-luna(-.*)?", E, "OpenAI GPT Luna (fast, low cost)"),
-    CatalogEntry(r"gpt-oss-.*", E, "OpenAI GPT-OSS (open-weight)"),
+    CatalogEntry(r"gpt-oss[-:].*", E, "OpenAI GPT-OSS (open-weight)"),
+    # Open-weight models run locally (Ollama, LM Studio). Even large ones are listed as economy: Saarathi
+    # cannot know the size or quantisation a person downloaded. A tier in the policy overrides this.
+    CatalogEntry(
+        r"(.*/)?(qwen|llama|deepseek|codestral|devstral|mistral|mixtral|gemma|phi|granite|starcoder|codellama|"
+        r"glm|kimi|olmo|smollm)[\w.\-]*(:.*)?",
+        E,
+        "open-weight model (local)",
+    ),
     CatalogEntry(r"gemini-[\d.]+-pro(-.*)?", F, "Google Gemini Pro"),
     CatalogEntry(r"gemini-[\d.]+-flash-lite(-.*)?", E, "Google Gemini Flash-Lite"),
     CatalogEntry(r"gemini-[\d.]+-flash-(low|minimal)", E, "Google Gemini Flash, low thinking"),

@@ -44,6 +44,7 @@ from saarathi.orchestration.engine import Engine
 from saarathi.orchestration.preferences import PRESET_LABELS, RunPreferences
 from saarathi.orchestration.project import META, Project
 from saarathi.policy_edit import ADDABLE, plan_policy_edit, write_policy
+from saarathi.providers.local_openai import DEFAULT_BASE_URL, detect_local_servers
 from saarathi.reporting.usage import usage_summary
 from saarathi.routing.router import resolve_lead
 from saarathi.security.redaction import Redactor
@@ -633,6 +634,16 @@ class BridgeService:
             if provider not in pol.routing.allowed_providers:
                 steps.append(f"add `{provider}` to routing.allowed_providers and `{provider}/*` to allowed_models")
             missing.append({"adapter": adapter_type, "provider": provider, "binary": found, "steps": steps})
+        if "local-openai" not in configured:
+            for label, url, count in detect_local_servers():
+                found_text = f"{label}, {count} model(s) found; models are discovered"
+                steps = [f"add `local-openai:` under `providers:` ({found_text})"]
+                if url != DEFAULT_BASE_URL:
+                    steps.append(f"set `options: {{base_url: {url}}}` for it")
+                if "local" not in pol.routing.allowed_providers:
+                    steps.append("add `local` to routing.allowed_providers and `local/*` to allowed_models")
+                missing.append({"adapter": "local-openai", "provider": "local", "binary": url, "steps": steps})
+                break
         return {
             "path": str(p.meta / "policies.yaml"),
             "unconfigured_clis": missing,

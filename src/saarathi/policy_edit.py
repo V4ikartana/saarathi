@@ -34,6 +34,7 @@ ADDABLE: dict[str, tuple[str, list[tuple[str, str]]]] = {
     "claude-code": ("anthropic", [("opus", "frontier"), ("sonnet", "balanced"), ("haiku", "economy")]),
     "codex-cli": ("openai", [("default", "unknown")]),
     "antigravity-cli": ("google", [("default", "unknown")]),
+    "local-openai": ("local", []),  # models are discovered from the local server
 }
 
 TRANSFER_MODES = ("deny", "require_approval", "allow")

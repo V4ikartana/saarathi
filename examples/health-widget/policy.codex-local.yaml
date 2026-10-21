@@ -1,0 +1,21 @@
+# Codex CLI leads (plans and reviews); a local open-source model through Ollama or LM Studio builds the tasks.
+# Start Ollama and download a model with tool calling first, for example: ollama pull qwen2.5-coder:7b
+version: 1
+mode: subscription
+orchestration:
+  lead: {adapter: codex-cli, model: default}
+routing:
+  allowed_providers: [openai, local]
+  allowed_models: ["openai/*", "local/*"]
+  max_parallel_workers: 1
+  escalate_after_failures: 2
+billing: {api_enabled: false}
+permissions: {allow_network: false, allow_dependency_install: false}
+execution: {task_timeout_seconds: 900, max_attempts: 2}
+providers:
+  codex-cli:
+    options: {isolate_user_config: true}
+    models: [{id: default, reasoning_tier: unknown, max_parallel: 1}]
+  local-openai:
+    # LM Studio: base_url: http://127.0.0.1:1234/v1
+    options: {base_url: "http://127.0.0.1:11434/v1"}

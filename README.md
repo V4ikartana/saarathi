@@ -42,14 +42,43 @@ anyway, and how to check a download against `SHA256SUMS.txt`.
 
 - macOS, Linux or Windows, Python 3.12+, Git 2.40+. The test suite runs on all three in CI; provider CLIs have been
   run live on macOS only. On Windows, enable `git config --global core.longpaths true`.
-- At least one supported, logged-in provider CLI:
+- At least one supported, logged-in provider CLI, or a local model server (see below):
 
 | Provider CLI | Adapter status | Evidence |
 |---|---|---|
 | Codex CLI (`codex exec`) | **Verified live** on codex-cli 0.162.0-alpha.2 and alpha.17.2 (macOS) | [feasibility report](docs/phase0/feasibility-report.md) |
 | Claude Code (`claude -p`) ≥ 2.1.259 | **Verified live** on 2.1.302 (macOS, subscription login) | [compatibility matrix](docs/providers/compatibility-matrix.md) |
 | Antigravity CLI (`agy -p`) ≥ 1.4 | **Verified live** on 1.4.2 (macOS, Google account login); works best as a worker | [compatibility matrix](docs/providers/compatibility-matrix.md) |
+| Local open-source models (Ollama, LM Studio, llama.cpp, vLLM) | **Verified live** with Ollama 0.40.7 (`qwen2.5-coder:7b`, `gemma4:e4b`) as workers | [ADR-0015](docs/architecture/decisions/ADR-0015-local-open-source-models.md) |
 | Anthropic / OpenAI / Google APIs | Not implemented (planned, with budgets) | |
+
+### Local open-source models
+
+If you have downloaded a model, Saarathi can use it for free, and your code stays on your computer. Any server that
+speaks the OpenAI chat API with tool calling works: Ollama, LM Studio, llama.cpp's `llama-server` or vLLM. Saarathi
+runs the model in its own agent loop. The model can only list, read, search and (as a worker) edit files in the task's
+worktree. It has no shell, and Saarathi runs every check itself.
+
+```bash
+ollama pull qwen2.5-coder:7b        # or any model with tool calling
+```
+
+Then add it to a project. In the app, open **Policy → Edit policy → local-openai → Add to this project**. Or edit
+`.saarathi/policies.yaml` by hand:
+
+```yaml
+routing:
+  allowed_providers: [anthropic, openai, google, local]
+  allowed_models: ["anthropic/*", "openai/*", "google/*", "local/*"]
+providers:
+  local-openai:
+    options: {base_url: "http://127.0.0.1:11434/v1"}   # LM Studio: http://127.0.0.1:1234/v1
+```
+
+Installed models are discovered automatically. Pick one for a session from the worker-model menu, or run
+`saarathi run brief.md --pin-model local-openai:qwen2.5-coder:7b`. Local models are listed as economy tier unless your
+policy declares otherwise, and a subscription model is still recommended as the lead. `examples/health-widget/demo.sh codex-local`
+sets up a demo with Codex as the lead and a local model as the worker.
 
 ## Quick start
 
@@ -156,6 +185,9 @@ Installers are on the [Releases](https://github.com/V4ikartana/saarathi/releases
   [ADR-0008](docs/architecture/decisions/ADR-0008-integration-and-identity-aware-routing.md) and
   [ADR-0009](docs/architecture/decisions/ADR-0009-cross-task-handoff.md).
 - A failed task stays failed for that run. Recovery from escalations means a new run.
+- Local models (ADR-0015) are only as capable as the model you run: small ones (7B and below) handle focused tasks
+  but often need retries on multi-step work. Servers other than Ollama are tested against a scripted
+  OpenAI-compatible server only, not live.
 - Windows support is verified by the offline test suite only (ADR-0012). No provider CLI has been run live on Windows.
 
 ## Architecture
