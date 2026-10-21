@@ -150,6 +150,9 @@ Installers are on the [Releases](https://github.com/V4ikartana/saarathi/releases
 - `permissions`: no network, no dependency installation, no deployment.
 - `orchestration.lead`: `claude-code:opus`. If it is unavailable, the run **pauses**; it is never silently replaced.
   Set `lead_substitute` to opt in to a named fallback.
+- Tiers: change any model's tier (frontier, balanced, economy) in the app's **Settings → Models**, or with
+  `saarathi models tier codex-cli:gpt-6-sol frontier`. Your choice applies in every project and wins over the policy
+  and the catalogue; `default` resets it.
 - Models are **declared** per adapter with your own `reasoning_tier`. Saarathi does not infer model IDs or
   entitlements from product names.
 - `integrations`: only verified or user-confirmed connections route; unverified identities fail closed;

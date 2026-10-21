@@ -390,6 +390,24 @@ def models_disable(model: Annotated[str, typer.Argument(help="adapter:model, e.g
     typer.echo(f"Turned off {model}. Models turned off: {', '.join(sorted(off))}")
 
 
+@models_app.command("tier")
+def models_tier(
+    model: Annotated[str, typer.Argument(help="adapter:model, e.g. local-openai:qwen2.5-coder:32b")],
+    tier: Annotated[str, typer.Argument(help="frontier | balanced | economy | default")],
+) -> None:
+    """Choose a model's tier in every project (`default` goes back to the policy or catalogue tier)."""
+    try:
+        tiers = user_settings.set_model_tier(model, None if tier == "default" else tier)
+    except ValueError as exc:
+        _fail(ConfigError(str(exc)))
+        raise
+    shown = ", ".join(f"{k}={v}" for k, v in sorted(tiers.items())) or "none"
+    if tier == "default":
+        typer.echo(f"{model} uses its default tier again. Tiers you chose: {shown}")
+    else:
+        typer.echo(f"{model} is now {tier} in every project. Tiers you chose: {shown}")
+
+
 @models_app.command("enable")
 def models_enable(model: Annotated[str, typer.Argument(help="adapter:model")]) -> None:
     """Turn a model you turned off back on."""

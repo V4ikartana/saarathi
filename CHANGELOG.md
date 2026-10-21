@@ -6,6 +6,9 @@ All notable changes are documented here. The format follows Keep a Changelog. Ve
 ## [Unreleased]
 
 ### Added
+- Choose any model's tier (frontier, balanced or economy) in **Settings → Models**, or with
+  `saarathi models tier <adapter:model> <tier|default>`. The choice is yours, applies in every project, and replaces
+  the tier from the policy or the model catalogue for routing and lead checks; "default" goes back.
 - Local open-source models as workers (ADR-0015): a `local-openai` adapter for Ollama, LM Studio, llama.cpp and vLLM.
   Saarathi drives the model in its own agent loop, with file tools confined to the task worktree, no shell, and
   structured answers through a `submit_result` tool. Loopback servers only unless `allow_remote` is set. Installed

@@ -135,6 +135,7 @@ class BridgeService:
             "runs.timeline": self.runs_timeline,
             "models.list": self.models_list,
             "models.set_enabled": self.models_set_enabled,
+            "models.set_tier": self.models_set_tier,
             "providers.status": self.providers_status,
             "policy.get": self.policy_get,
             "policy.update": self.policy_update,
@@ -594,13 +595,25 @@ class BridgeService:
     def models_list(self, project: str) -> list[Any]:
         p = self.project(project)
         off = user_settings.disabled_models()
+        chosen = user_settings.model_tiers()
+        defaults = {m.candidate_id: m.capabilities.reasoning_tier for m in p.registry.models(chosen_tiers=False)}
         return [
-            {**jsonable(ModelOut.from_descriptor(m)), "disabled": m.candidate_id in off} for m in p.registry.models()
+            {
+                **jsonable(ModelOut.from_descriptor(m)),
+                "disabled": m.candidate_id in off,
+                "tier_set_by_you": m.candidate_id in chosen,
+                "default_tier": defaults.get(m.candidate_id, m.capabilities.reasoning_tier),
+            }
+            for m in p.registry.models()
         ]
 
     def models_set_enabled(self, candidate: str, enabled: bool) -> dict[str, Any]:
         """Turn a model on or off for this person, in every project (``<data dir>/settings.json``)."""
         return {"disabled": sorted(user_settings.set_model_enabled(candidate, enabled))}
+
+    def models_set_tier(self, candidate: str, tier: str | None) -> dict[str, Any]:
+        """Choose a model's tier (frontier, balanced, economy) for this person in every project; null resets it."""
+        return {"tiers": user_settings.set_model_tier(candidate, tier)}
 
     def policy_get(self, project: str) -> dict[str, Any]:
         """The effective policy and how each worker is contained, for the policy screen. Edits go through
